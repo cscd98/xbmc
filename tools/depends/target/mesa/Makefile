@@ -2,9 +2,9 @@ include ../../Makefile.include
 DEPS =../../Makefile.include Makefile ../../download-files.include
 
 LIBNAME=mesa
-VERSION=20.1.7
+VERSION=22.3.3
 ARCHIVE=$(LIBNAME)-$(VERSION).tar.xz
-SHA512=5ff614c3f7568db7673cd2398615e5398c7f50093abdabd0730e07fe9c358310793fea3f130058110c9a2aa284c6efd207e1bdca3d1a1ba46fb18d76e34f361a
+SHA512=dcf166bc7c80e6ad09337e0188219e5ea4bdc558bc4b4ca35ce30d5421568f6b5328e5508b3175a2696521214e466354d8652ade22468ce448d9f61d5709c8a1
 include ../../download-files.include
 
 MESON_BUILD_TYPE=release
@@ -17,7 +17,7 @@ ifeq ($(CPU), x86_64)
   MESA_GALLIUM_DRIVERS=iris
 else ifeq ($(CPU), $(filter $(CPU), arm aarch64))
   MESA_GALLIUM_DRIVERS=kmsro,vc4
-  MESA_EXTRA=-Dplatforms=wayland,drm
+  MESA_EXTRA=-Dplatforms=wayland
 endif
 
 # configuration settings
@@ -34,16 +34,16 @@ CONFIGURE = $(NATIVEPREFIX)/bin/python3 $(NATIVEPREFIX)/bin/meson \
 	-Dgallium-opencl=disabled \
 	-Dvulkan-drivers= \
 	-Dshader-cache=true \
-	-Dshared-glapi=true \
+	-Dshared-glapi=enabled \
 	-Dopengl=true \
-	-Dgbm=true \
-	-Degl=true \
+	-Dgbm=enabled \
+	-Degl=enabled \
 	-Dvalgrind=false \
 	-Dlibunwind=false \
 	-Dlmsensors=false \
 	-Dbuild-tests=false \
 	-Dselinux=false \
-	-Dosmesa=none \
+	-Dosmesa=false \
 	-Ddri3=false \
 	-Dglx=disabled \
 	-Dglvnd=false \
@@ -51,8 +51,8 @@ CONFIGURE = $(NATIVEPREFIX)/bin/python3 $(NATIVEPREFIX)/bin/meson \
 	-Dgallium-vdpau=false \
 	-Dgallium-va=false \
 	-Dgallium-xa=false \
-	-Dgles1=false \
-	-Dgles2=true \
+	-Dgles1=disabled \
+	-Dgles2=enabled \
 	$(MESA_EXTRA)
 
 ifeq ($(CROSS_COMPILING), yes)

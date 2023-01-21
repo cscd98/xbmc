@@ -2,9 +2,9 @@ include ../../Makefile.include
 DEPS =../../Makefile.include Makefile ../../download-files.include
 
 LIBNAME=libdrm
-VERSION=2.4.102
-ARCHIVE=$(LIBNAME)-$(VERSION).tar.xz
-SHA512=386afd228efd809fe32776a6ff5d9dd95d1409a6a6a89b3806a3b42ed27e84f1e090f3b7834973f834d6b0d1342b7034447fe8690d072f85f03292d7795c3e0c
+VERSION=2.4.114
+ARCHIVE=$(LIBNAME)-$(VERSION).tar.gz
+SHA512=dcf8a8a3aca590ccce5661be7941856f085b06324c540a679f5d2cb85bb4eec58a2395e3a1d4b99ac57e647d6a73c0f3d81276c918af910fbaf38a68d58d5a53
 include ../../download-files.include
 
 MESON_BUILD_TYPE=release
@@ -19,20 +19,20 @@ CONFIGURE = $(NATIVEPREFIX)/bin/python3 $(NATIVEPREFIX)/bin/meson \
 	--libdir=lib \
 	--buildtype=$(MESON_BUILD_TYPE) \
 	-Dlibkms=false \
-	-Dnouveau=false \
-	-Domap=false \
-	-Dexynos=false \
-	-Dtegra=false \
-	-Dintel=false \
-	-Dradeon=false \
-	-Damdgpu=false \
-	-Dvmwgfx=false \
-	-Dvc4=false \
-	-Dfreedreno=false \
-	-Detnaviv=false \
-	-Dcairo-tests=false \
-	-Dman-pages=false \
-	-Dvalgrind=false \
+	-Dnouveau=disabled \
+	-Domap=disabled \
+	-Dexynos=disabled \
+	-Dtegra=disabled \
+	-Dintel=disabled \
+	-Dradeon=disabled \
+	-Damdgpu=disabled \
+	-Dvmwgfx=disabled \
+	-Dvc4=disabled \
+	-Dfreedreno=disabled \
+	-Detnaviv=disabled \
+	-Dcairo-tests=disabled \
+	-Dman-pages=disabled \
+	-Dvalgrind=disabled \
 	-Dfreedreno-kgsl=false \
 	-Dinstall-test-programs=false \
 	-Dudev=false
