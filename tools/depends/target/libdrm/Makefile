@@ -19,6 +19,7 @@ CONFIGURE = $(NATIVEPREFIX)/bin/python3 $(NATIVEPREFIX)/bin/meson \
 	--libdir=lib \
 	--buildtype=$(MESON_BUILD_TYPE) \
 	-Dlibkms=false \
+	-Ddefault_library=both \
 	-Dnouveau=disabled \
 	-Domap=disabled \
 	-Dexynos=disabled \
