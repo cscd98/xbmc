@@ -3,11 +3,17 @@ DEPS =Makefile ../../download-files.include
 
 # lib name, version
 LIBNAME=wayland-protocols
-VERSION=1.20
+VERSION=1.24
 SOURCE=$(LIBNAME)-$(VERSION)
-ARCHIVE=$(SOURCE).tar.gz
-SHA512=56c99b1534ca12e094c0ba1a7d38e7551d38dd7dea80d1a35ae4cd60e8b28ddbd8f00374394da871bbfc91aa3a42f77ebed7d62a8fe6165684a385f2028a1bf4
+ARCHIVE=$(SOURCE).tar.xz
+SHA512=4b1122517db56f48a5fafd4bd0cb7f94faef6fdd2d80e6cec17e5a6bafbaf2f5a71b958ed12e6d13965494885c209b2fb6dd8331487b39c6f251e71f1e770a15
 include ../../download-files.include
+
+MESON_BUILD_TYPE=release
+
+ifeq ($(DEBUG_BUILD), yes)
+  MESON_BUILD_TYPE=debug
+endif
 
 ifeq ($(PLATFORM),)
 	# Building stand-alone
@@ -23,7 +29,20 @@ else
 endif
 
 # configuration settings
-CONFIGURE=./configure --prefix=$(PREFIX)
+CONFIGURE = $(NATIVEPREFIX)/bin/python3 $(NATIVEPREFIX)/bin/meson \
+	--prefix=$(PREFIX) \
+	--buildtype=$(MESON_BUILD_TYPE)
+
+ifeq ($(CROSS_COMPILING), yes)
+CONFIGURE += --cross-file $(PREFIX)/share/cross-file.meson
+export CC=$(CC_FOR_BUILD)
+export CXX=$(CXX_FOR_BUILD)
+export CFLAGS=$(CFLAGS_FOR_BUILD)
+export CXXFLAGS=$(CXXFLAGS_FOR_BUILD)
+else
+export CC CXX CFLAGS CXXFLAGS
+endif
+export PKG_CONFIG_LIBDIR=$(PREFIX)/lib/pkgconfig
 
 all: .installed-$(PLATFORM)
 
@@ -36,11 +55,11 @@ ifeq ($(PREFIX),)
 endif
 	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
-	cd $(PLATFORM); $(AUTORECONF) -vif
-	cd $(PLATFORM); $(CONFIGURE)
+	cd $(PLATFORM); rm -rf build; mkdir -p build
+	cd $(PLATFORM); $(CONFIGURE) . build
 
 .installed-$(PLATFORM): $(PLATFORM)
-	$(MAKE) -C $(PLATFORM) install
+	cd $(PLATFORM)/build; $(NATIVEPREFIX)/bin/ninja -v install
 	ln -sf $(PREFIX)/share/pkgconfig/wayland-protocols.pc $(PREFIX)/lib/pkgconfig/wayland-protocols.pc
 	touch $@
 
