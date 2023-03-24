@@ -23441,3 +23441,14 @@ msgstr ""
 msgctxt "#39193"
 msgid "If music is being played, the screensaver will never be activated"
 msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#39194"
+msgid "Allow using GSTREAMER decoder"
+msgstr ""
+
+#. Description of setting with label #39194 "Allow hardware acceleration - GSTREAMER"
+#: system/settings/settings.xml
+msgctxt "#39195"
+msgid "Enable GSTREAMER decoding of video files"
+msgstr ""

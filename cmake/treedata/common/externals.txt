@@ -1,1 +1,2 @@
 xbmc/contrib/kissfft                  kissfft
+xbmc/contrib/gstlibav                 gstlibav

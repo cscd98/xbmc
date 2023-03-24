@@ -93,6 +93,18 @@ add_custom_target(ipk
   VERBATIM
 )
 
+if(GSTREAMER_FOUND)
+  add_custom_target(bundle-gstreamer
+    COMMAND ${CMAKE_COMMAND} -E copy ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libpcre2-8.so ${APP_PACKAGE_DIR}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${DEPENDS_PATH}/lib/libintl.so.8 ${APP_PACKAGE_DIR}/lib
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${APP_PACKAGE_DIR}/libexec
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${APP_PACKAGE_DIR}/libexec/gstreamer-1.0
+    COMMAND ${CMAKE_COMMAND} -E copy ${DEPENDS_PATH}/libexec/gstreamer-1.0/gst-plugin-scanner ${APP_PACKAGE_DIR}/libexec/gstreamer-1.0
+  )
+  add_dependencies(bundle-gstreamer ${APP_NAME_LC})
+  add_dependencies(ipk bundle-gstreamer)
+endif()
+
 add_custom_target(ipk-clean
   COMMAND ${CMAKE_COMMAND} -E rm -r ${APP_PACKAGE_DIR}
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}

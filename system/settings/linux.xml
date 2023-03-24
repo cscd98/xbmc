@@ -193,6 +193,13 @@
           </constraints>
           <control type="spinner" format="string" />
         </setting>
+        <setting id="videoplayer.usegstreamer" type="boolean" label="39194" help="39195">
+          <requirement>HAS_GSTREAMER</requirement>
+          <visible>true</visible>
+          <level>2</level>
+          <default>false</default>
+          <control type="toggle" />
+        </setting>
       </group>
     </category>
   </section>

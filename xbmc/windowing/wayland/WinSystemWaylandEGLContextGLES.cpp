@@ -22,6 +22,9 @@
 #include "utils/UDMABufferObject.h"
 #include "utils/log.h"
 #include "windowing/WindowSystemFactory.h"
+#ifdef GSTREAMER_FOUND
+  #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecGStreamer.h"
+#endif
 
 using namespace KODI::WINDOWING::WAYLAND;
 
@@ -37,6 +40,7 @@ std::unique_ptr<CWinSystemBase> CWinSystemWaylandEGLContextGLES::CreateWinSystem
 
 bool CWinSystemWaylandEGLContextGLES::InitWindowSystem()
 {
+
   if (!CWinSystemWaylandEGLContext::InitWindowSystemEGL(EGL_OPENGL_ES2_BIT, EGL_OPENGL_ES_API))
   {
     return false;
@@ -45,6 +49,9 @@ bool CWinSystemWaylandEGLContextGLES::InitWindowSystem()
   CLinuxRendererGLES::Register();
 
   CDVDVideoCodecDRMPRIME::Register();
+  #ifdef GSTREAMER_FOUND
+    CDVDVideoCodecGStreamer::Register();
+  #endif
   CRendererDRMPRIMEGLES::Register();
 
   RETRO::CRPProcessInfo::RegisterRendererFactory(new RETRO::CRendererFactoryDMA);

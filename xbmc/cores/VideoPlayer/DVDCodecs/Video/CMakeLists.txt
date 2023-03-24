@@ -41,4 +41,9 @@ if("gbm" IN_LIST CORE_PLATFORM_NAME_LC OR "wayland" IN_LIST CORE_PLATFORM_NAME_L
   list(APPEND HEADERS DVDVideoCodecDRMPRIME.h)
 endif()
 
+if(GSTREAMER_FOUND)
+  list(APPEND SOURCES DVDVideoCodecGStreamer.cpp)
+  list(APPEND HEADERS DVDVideoCodecGStreamer.h)
+endif()
+
 core_add_library(dvdvideocodecs)

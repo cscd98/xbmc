@@ -198,6 +198,8 @@ set(optional_deps Alsa
                   CEC
                   Dav1d
                   DBus
+                  GStreamer
+                  GstLibav
                   Iso9660pp
                   LCMS2
                   LircClient

@@ -19,6 +19,9 @@
 #include "utils/UDMABufferObject.h"
 #include "utils/log.h"
 #include "windowing/WindowSystemFactory.h"
+#ifdef GSTREAMER_FOUND
+  #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecGStreamer.h"
+#endif
 
 #include <EGL/eglext.h>
 
@@ -42,6 +45,9 @@ bool CWinSystemWaylandEGLContextGL::InitWindowSystem()
   }
 
   CLinuxRendererGL::Register();
+  #ifdef GSTREAMER_FOUND
+    CDVDVideoCodecGStreamer::Register();
+  #endif
   RETRO::CRPProcessInfo::RegisterRendererFactory(new RETRO::CRendererFactoryDMA);
   RETRO::CRPProcessInfo::RegisterRendererFactory(new RETRO::CRendererFactoryOpenGL);
 

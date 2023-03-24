@@ -75,6 +75,9 @@ bool CPlatformLinux::InitStageOne()
   setenv("KODI_HOME", HOME.c_str(), 1);
   setenv("SSL_CERT_FILE",
          CSpecialProtocol::TranslatePath("special://xbmc/system/certs/cacert.pem").c_str(), 1);
+  #if defined(GSTREAMER_FOUND)
+    setenv("GST_PLUGIN_SCANNER_1_0", HOME.append("/libexec/gstreamer-1.0/gst-plugin-scanner").c_str(), 1);
+  #endif
 #endif
 
 #if defined(HAS_GLES)
