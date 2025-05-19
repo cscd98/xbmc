@@ -66,6 +66,11 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
           # python archive built via depends requires librt for _posixshmem library
           list(APPEND PYTHON_DEP_LIBRARIES rt)
         endif()
+        if(CORE_PLATFORM_NAME STREQUAL webos)
+          # python archive built via depends requires iconv
+          find_library(ICONV_LIBRARY iconv REQUIRED)
+          list(APPEND PYTHON_DEP_LIBRARIES ${ICONV_LIBRARY})
+        endif ()
       endif()
 
       set(Py_LINK_LIBRARIES EXPAT::EXPAT ${FFI_LIBRARY} ${GMP_LIBRARY} LIBRARY::Iconv Intl::Intl LibLZMA::LibLZMA ${PYTHON_DEP_LIBRARIES})
