@@ -5,10 +5,10 @@ DEPS = ../../Makefile.include Makefile LIBFFI-VERSION ../../download-files.inclu
 CONFIGURE= ./configure --prefix=$(PREFIX) \
                        --libdir=$(PREFIX)/lib \
                        --disable-multi-os-directory \
-                       --disable-shared \
                        --disable-builddir
+#                      --disable-shared
 
-LIBDYLIB=$(PLATFORM)/.libs/$(LIBNAME).a
+LIBDYLIB=$(PLATFORM)/.libs/$(LIBNAME).so
 
 all: .installed-$(PLATFORM)
 

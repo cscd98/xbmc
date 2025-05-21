@@ -14,6 +14,7 @@
 #include "utils/log.h"
 
 #include <sys/resource.h>
+#include <filesystem>
 
 CPlatform* CPlatform::CreateInstance()
 {
@@ -22,8 +23,14 @@ CPlatform* CPlatform::CreateInstance()
 
 bool CPlatformWebOS::InitStageOne()
 {
-  // WebOS ipks run in a chroot like environment. $HOME is set to the ipk dir and $LD_LIBRARY_PATH is lib
-  const auto HOME = std::string(getenv("HOME"));
+  // WebOS ipks run in a chroot like std::filesystem::current_pathenvironment. $HOME is set to the ipk dir and $LD_LIBRARY_PATH is lib
+  auto HOME = std::string(getenv("HOME"));
+
+  // If launching from SSH, webOS will set HOME to /media/developer which is not writeable, so instead set the path from current_path
+  if(HOME == "/media/developer/") {
+    HOME = std::filesystem::current_path();
+  }
+
   setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 1);
   setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
   setenv("WAYLAND_DISPLAY", "wayland-0", 1);
@@ -38,6 +45,9 @@ bool CPlatformWebOS::InitStageOne()
   setenv("KODI_HOME", HOME.c_str(), 1);
   setenv("SSL_CERT_FILE",
          CSpecialProtocol::TranslatePath("special://xbmc/system/certs/cacert.pem").c_str(), 1);
+#if defined(HAVE_GSTREAMER)
+	setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/libexec/gstreamer-1.0/gst-plugin-scanner").c_str(), 1);
+#endif
 
   return CPlatformLinux::InitStageOne();
 }

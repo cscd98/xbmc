@@ -128,7 +128,7 @@ ifeq ($(OS),linux)
   endif
 
   ifeq ($(TARGET_PLATFORM),webos)
-    DEPENDS += libdovi wayland waylandpp wayland-protocols webos-wayland-extensions webos-userland
+    DEPENDS += libdovi wayland waylandpp wayland-protocols webos-wayland-extensions webos-userland gstreamer
     EXCLUDED_DEPENDS += dbus linux-system-x11-libs pipewire mesa
   endif
 
@@ -160,6 +160,8 @@ ffmpeg: $(ICONV) $(ZLIB) bzip2 gnutls dav1d $(LIBVA)
 fontconfig: freetype2 expat $(ICONV) $(LIBUUID)
 freetype2: bzip2 harfbuzz $(ZLIB)
 gettext: $(ICONV)
+glib: gettext
+gstreamer: libffi glib
 gnutls: nettle $(ZLIB)
 harfbuzz: freetype2-noharfbuzz $(ICONV)
 libaacs: libgcrypt libgpg-error

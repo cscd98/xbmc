@@ -1,0 +1,6 @@
+LIBNAME=gstreamer
+BYPRODUCT=libgstreamer-1.0
+VERSION=1.26.2
+ARCHIVE=$(LIBNAME)-$(VERSION).tar.gz
+SHA512=0d16a2ae1ccbf2ed3b5c912ad18493c84f72298a7d69d3ccb06c34db1282788d9d4b721bdee703ab76499e7c2338260d3cd405062f7ea2943d5873724075e80f
+BASE_URL=https://gitlab.freedesktop.org/gstreamer/gstreamer/-/archive/$(VERSION)
