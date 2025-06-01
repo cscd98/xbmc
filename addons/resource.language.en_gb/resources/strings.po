@@ -24340,7 +24340,19 @@ msgctxt "#39206"
 msgid "CC"
 msgstr ""
 
-#empty strings from id 39207 to 39999
+# Allow using Starfish decoder
+#: system/settings/linux.xml
+msgctxt "#39207"
+msgid "Allow using Starfish decoder"
+msgstr ""
+
+#. Description of setting with label #39207 "Allow hardware acceleration - Starfish"
+#: system/settings/linux.xml
+msgctxt "#39208"
+msgid "Enable Starfish decoding of video files"
+msgstr ""
+
+#empty strings from id 39209 to 39999
 
 # 40000 to 40800 are reserved for Video Versions feature
 
