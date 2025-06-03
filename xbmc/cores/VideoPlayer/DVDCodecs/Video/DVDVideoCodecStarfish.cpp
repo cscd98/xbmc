@@ -12,6 +12,7 @@
 #include "DVDCodecs/DVDFactoryCodec.h"
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/Buffers/VideoBuffer.h"
+#include "cores/VideoPlayer/Interface/DemuxCrypto.h"
 #include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderManager.h"
 #include "messaging/ApplicationMessenger.h"
@@ -42,6 +43,7 @@ constexpr unsigned int MIN_BUFFER_LEVEL = 0;
 constexpr unsigned int MAX_BUFFER_LEVEL = 0;
 constexpr unsigned int MIN_SRC_BUFFER_LEVEL = 1 * 1024 * 1024; // 1 MB
 constexpr unsigned int MAX_SRC_BUFFER_LEVEL = 8 * 1024 * 1024; // 8 MB
+constexpr unsigned int SVP_VERSION_40 = 40;
 } // namespace
 
 CDVDVideoCodecStarfish::CDVDVideoCodecStarfish(CProcessInfo& processInfo)
@@ -110,8 +112,21 @@ bool CDVDVideoCodecStarfish::OpenInternal(CDVDStreamInfo& hints, CDVDCodecOption
 
   if (hints.cryptoSession)
   {
-    CLog::LogF(LOGERROR, "CryptoSessions unsupported");
-    return false;
+    payloadArg["option"]["externalStreamingInfo"]["svpVersion"] = SVP_VERSION_40;
+
+    switch(hints.cryptoSession->keySystem) {
+      case STREAM_CRYPTO_KEY_SYSTEM_PLAYREADY:
+        CLog::Log(LOGDEBUG, "hints.cryptoSession attempt for PLAYREADY");
+        payloadArg["option"]["drm"]["type"] = "PLAYREADY";
+        break;
+      case STREAM_CRYPTO_KEY_SYSTEM_WIDEVINE:
+        CLog::Log(LOGDEBUG, "hints.cryptoSession attempt for WIDEVINE");
+        payloadArg["option"]["drm"]["type"] = "WIDEVINE_MODULAR";
+        break;
+      default:
+        CLog::LogF(LOGERROR, "CryptoSession unsupported: %d", hints.cryptoSession->keySystem);
+        return false;
+    }
   }
 
   if (!hints.width || !hints.height)
