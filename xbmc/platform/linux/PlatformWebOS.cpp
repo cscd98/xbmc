@@ -13,6 +13,8 @@
 #include "powermanagement/LunaPowerManagement.h"
 #include "utils/log.h"
 
+#include <filesystem>
+
 #include <sys/resource.h>
 #include <filesystem>
 
@@ -21,15 +23,23 @@ CPlatform* CPlatform::CreateInstance()
   return new CPlatformWebOS();
 }
 
+std::string CPlatformWebOS::GetHomePath()
+{
+  std::filesystem::path self("/proc/self/exe");
+  std::error_code ec;
+  std::filesystem::path path = std::filesystem::read_symlink(self, ec);
+
+  if (ec)
+  {
+    return getenv("HOME");
+  }
+
+  return path.parent_path().c_str();
+}
+
 bool CPlatformWebOS::InitStageOne()
 {
-  // WebOS ipks run in a chroot like std::filesystem::current_pathenvironment. $HOME is set to the ipk dir and $LD_LIBRARY_PATH is lib
-  auto HOME = std::string(getenv("HOME"));
-
-  // If launching from SSH, webOS will set HOME to /media/developer which is not writeable, so instead set the path from current_path
-  if(HOME == "/media/developer/") {
-    HOME = std::filesystem::current_path();
-  }
+  const auto HOME = GetHomePath();
 
   setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 1);
   setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
