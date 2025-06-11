@@ -47,6 +47,8 @@ public:
   ~CWinSystemWaylandWebOS() noexcept override;
   bool HasCursor() override;
   void OnConfigure(std::uint32_t serial, CSizeInt size, IShellSurface::StateBitset state) override;
+  wayland::surface_t GetMainSurface() { return CWinSystemWayland::GetMainSurface(); };
+  CConnection* GetWaylandConnection() { return GetConnection().get(); }
 
 protected:
   std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> GetOSScreenSaverImpl() override;

@@ -18,5 +18,6 @@ public:
   static CPlatform* CreateInstance();
 
 protected:
+  std::string GetHomePath();
   void RegisterPowerManagement() override;
 };

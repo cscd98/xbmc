@@ -114,6 +114,7 @@ void CRendererStarfish::ManageRenderArea()
     auto winSystem = static_cast<CWinSystemWaylandWebOS*>(CServiceBroker::GetWinSystem());
     if (winSystem->SupportsExportedWindow())
     {
+      CLog::Log(LOGDEBUG, "CRendererStarfish::ManageRenderArea(): setting exported window");
       winSystem->SetExportedWindow(origRect, m_sourceRect, m_destRect);
     }
     else if (m_acbId)

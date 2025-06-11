@@ -103,7 +103,7 @@ protected:
   {
     return m_bufferSize;
   }
-  std::unique_ptr<CConnection> const& GetConnection()
+  std::unique_ptr<CConnection> const& GetConnection() const
   {
     return m_connection;
   }

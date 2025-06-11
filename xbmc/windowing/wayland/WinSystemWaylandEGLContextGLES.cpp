@@ -22,6 +22,9 @@
 #include "utils/UDMABufferObject.h"
 #include "utils/log.h"
 #include "windowing/WindowSystemFactory.h"
+#ifdef HAVE_GSTREAMER
+  #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecGStreamer.h"
+#endif
 
 using namespace KODI::WINDOWING::WAYLAND;
 
@@ -45,6 +48,9 @@ bool CWinSystemWaylandEGLContextGLES::InitWindowSystem()
   CLinuxRendererGLES::Register();
 
   CDVDVideoCodecDRMPRIME::Register();
+  #ifdef HAVE_GSTREAMER
+    CDVDVideoCodecGStreamer::Register();
+  #endif
   CRendererDRMPRIMEGLES::Register();
 
   RETRO::CRPProcessInfo::RegisterRendererFactory(new RETRO::CRendererFactoryDMAOpenGLES);
