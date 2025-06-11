@@ -16,6 +16,7 @@
 #include <filesystem>
 
 #include <sys/resource.h>
+#include <filesystem>
 
 CPlatform* CPlatform::CreateInstance()
 {
@@ -57,6 +58,9 @@ bool CPlatformWebOS::InitStageOne()
   setenv("KODI_HOME", HOME.c_str(), 1);
   setenv("SSL_CERT_FILE",
          CSpecialProtocol::TranslatePath("special://xbmc/system/certs/cacert.pem").c_str(), 1);
+#if defined(HAVE_GSTREAMER)
+	setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/libexec/gstreamer-1.0/gst-plugin-scanner").c_str(), 1);
+#endif
 
   return CPlatformLinux::InitStageOne();
 }

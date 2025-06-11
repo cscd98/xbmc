@@ -111,6 +111,7 @@ bool CWinSystemWaylandWebOS::SetExportedWindow(CRect orig, CRect src, CRect dest
 {
   if (m_webosForeign)
   {
+    CLog::Log(LOGDEBUG, "CWinSystemWaylandWebOS::SetExportedWindow()");
     CLog::LogF(LOGINFO, "orig {} {} {} {} src {} {} {} {} -> dest {} {} {} {}", orig.x1, orig.y1,
                orig.x2, orig.y2, src.x1, src.y1, src.x2, src.y2, dest.x1, dest.y1, dest.x2,
                dest.y2);

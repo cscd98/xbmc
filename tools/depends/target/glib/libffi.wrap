@@ -1,0 +1,9 @@
+[wrap-file]
+directory = libffi
+source_url = https://github.com/libffi/libffi/releases/download/v3.4.7/libffi-3.4.7.tar.gz
+source_filename = libffi-3.4.7.tar.gz
+source_hash = 138607dee268bdecf374adf9144c00e839e38541f75f24a1fcf18b78fda48b2d
+wrapdb_version = 3.4.7
+
+[provide]
+libffi = ffi_dep

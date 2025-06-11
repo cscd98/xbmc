@@ -71,8 +71,8 @@ CDVDVideoCodecStarfish::~CDVDVideoCodecStarfish()
 std::unique_ptr<CDVDVideoCodec> CDVDVideoCodecStarfish::Create(CProcessInfo& processInfo)
 {
   if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-          CSettings::SETTING_VIDEOPLAYER_USESTARFISHDECODER))
-    return std::make_unique<CDVDVideoCodecStarfish>(processInfo);
+      CSettings::SETTING_VIDEOPLAYER_USESTARFISHDECODER))
+        return std::make_unique<CDVDVideoCodecStarfish>(processInfo);
 
   return nullptr;
 }

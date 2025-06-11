@@ -31,6 +31,13 @@ set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
 set(APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/lib/libatomic.so.1
                         ${TOOLCHAIN}/${HOST}/sysroot/lib/libcrypt.so.1
                         ${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
+
+if(ENABLE_GSTREAMER)
+  list(APPEND APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libpcre2-8.so)
+  list(APPEND APP_TOOLCHAIN_FILES ${DEPENDS_PATH}/lib/libintl.so.8)
+#  list(APPEND APP_TOOLCHAIN_FILES ${DEPENDS_PATH}/lib/libffi.so.8)
+endif()
+
 set(BIN_ADDONS_DIR ${DEPENDS_PATH}/addons)
 
 file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "
@@ -93,6 +100,16 @@ add_custom_target(ipk
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   VERBATIM
 )
+
+if(ENABLE_GSTREAMER)
+  add_custom_target(bundle-gstreamer
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${APP_PACKAGE_DIR}/libexec
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${APP_PACKAGE_DIR}/libexec/gstreamer-1.0
+    COMMAND ${CMAKE_COMMAND} -E copy ${DEPENDS_PATH}/libexec/gstreamer-1.0/gst-plugin-scanner ${APP_PACKAGE_DIR}/libexec/gstreamer-1.0
+  )
+  add_dependencies(bundle-gstreamer ${APP_NAME_LC})
+  add_dependencies(ipk bundle-gstreamer)
+endif()
 
 add_custom_target(ipk-clean
   COMMAND ${CMAKE_COMMAND} -E rm -r ${APP_PACKAGE_DIR}

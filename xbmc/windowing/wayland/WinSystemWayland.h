@@ -97,19 +97,21 @@ public:
   // winevents override
   bool MessagePump() override;
 
+  wayland::display_t& GetDisplay() { return GetConnection()->GetDisplay(); }
+  wayland::surface_t GetMainSurface()
+  {
+    return m_surface;
+  }
+
 protected:
   std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> GetOSScreenSaverImpl() override;
   CSizeInt GetBufferSize() const
   {
     return m_bufferSize;
   }
-  std::unique_ptr<CConnection> const& GetConnection()
+  std::unique_ptr<CConnection> const& GetConnection() const
   {
     return m_connection;
-  }
-  wayland::surface_t GetMainSurface()
-  {
-    return m_surface;
   }
   IShellSurface* GetShellSurface() { return m_shellSurface.get(); }
 

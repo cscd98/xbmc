@@ -46,4 +46,10 @@ if("webos" IN_LIST CORE_PLATFORM_NAME_LC)
   list(APPEND HEADERS DVDVideoCodecStarfish.h)
 endif()
 
+# HAVE_GSTREAMER
+if(ENABLE_GSTREAMER)
+  list(APPEND SOURCES DVDVideoCodecGStreamer.cpp)
+  list(APPEND HEADERS DVDVideoCodecGStreamer.h)
+endif()
+
 core_add_library(dvdvideocodecs)

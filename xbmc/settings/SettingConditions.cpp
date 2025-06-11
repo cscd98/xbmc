@@ -383,6 +383,9 @@ void CSettingConditions::Initialize()
 #ifdef HAVE_LIBVDPAU
   m_simpleConditions.emplace("have_libvdpau");
 #endif
+#ifdef HAVE_GSTREAMER
+  m_simpleConditions.emplace("have_gstreamer");
+#endif
 #ifdef TARGET_ANDROID
   m_simpleConditions.emplace("has_mediacodec");
 #endif

@@ -24352,7 +24352,31 @@ msgctxt "#39208"
 msgid "Starfish is the hardware video decoder for LG's webOS. Disable it for troubleshooting or testing."
 msgstr ""
 
-#empty strings from id 39209 to 39999
+# Allow using GStreamer decoder
+#: system/settings/settings.xml
+msgctxt "#39209"
+msgid "Allow using GSTREAMER decoder"
+msgstr ""
+
+#. Description of setting with label #39209 "Allow hardware acceleration - GSTREAMER"
+#: system/settings/settings.xml
+msgctxt "#39210"
+msgid "Enable GSTREAMER decoding of video files"
+msgstr ""
+
+# Prefer to allow GStreamer video sink to do the rendering
+#: system/settings/settings.xml
+msgctxt "#39211"
+msgid "Prefer using GSTREAMER renderer"
+msgstr ""
+
+#. Description of setting with label #39211 "Prefer using GSTREAMER renderer"
+#: system/settings/settings.xml
+msgctxt "#39212"
+msgid "Prefer GSTREAMER videosink to render"
+msgstr ""
+
+#empty strings from id 39213 to 39999
 
 # 40000 to 40800 are reserved for Video Versions feature
 

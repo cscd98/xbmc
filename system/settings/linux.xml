@@ -212,6 +212,25 @@
           <default>true</default>
           <control type="toggle" />
         </setting>
+        <setting id="videoplayer.usegstreamer" type="boolean" label="39209" help="39210">
+          <requirement>HAVE_GSTREAMER</requirement>
+          <visible>true</visible>
+          <level>2</level>
+          <default>false</default>
+          <control type="toggle" />
+        </setting>
+        <setting id="videoplayer.prefergstreamervideosink" type="boolean" parent="videoplayer.usegstreamer" label="39211" help="39212">
+          <requirement>HAVE_GSTREAMER</requirement>
+          <visible>true</visible>
+          <dependencies>
+            <dependency type="enable">
+              <condition setting="videoplayer.usegstreamer" operator="is">true</condition>
+            </dependency>
+          </dependencies>
+          <level>3</level>
+          <default>false</default>
+          <control type="toggle" />
+        </setting>
       </group>
     </category>
   </section>
