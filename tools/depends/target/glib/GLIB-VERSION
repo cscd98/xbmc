@@ -1,0 +1,6 @@
+LIBNAME=glib
+BYPRODUCT=glib-2.0
+VERSION=2.85.0
+ARCHIVE=$(LIBNAME)-$(VERSION).tar.xz
+SHA512=c08dd4f8c87b4dde98a6529e136b935db459bcdf3be22ed76c6bcb6e93d374740c15899c0645cec363c72fb0d508b6365bb5f5aaa7b36b67f13748cfcd0b55ce
+BASE_URL=https://download.gnome.org/sources/glib/$(VERSION)
