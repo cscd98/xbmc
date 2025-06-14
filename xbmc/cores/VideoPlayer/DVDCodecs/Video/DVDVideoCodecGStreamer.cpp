@@ -199,9 +199,8 @@ CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
   m_needData{false},  m_videoSink{"waylandsink"}, m_hasSinkLinkedToSurface{false},
   m_currentPts{0},
   m_exportedWindowName{""},
-  m_name{0},
-  m_codecControlFlags{0},
-  m_pFrame{nullptr}, m_videoBufferPool{nullptr}
+  m_name{0}, m_pFrame{nullptr},
+  m_codecControlFlags{0}, m_videoBufferPool{nullptr}
 {
   data.main_loop = nullptr;
   data.bus = nullptr;
@@ -371,9 +370,12 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
         CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK)) {
     pipeline += " ! " + m_videoSink;
 
-    if(getenv("WAYLAND_DISPLAY")) {
-      pipeline += " display=" + std::string(getenv("WAYLAND_DISPLAY"));
+    if(!getenv("WAYLAND_DISPLAY")) {
+      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - please set WAYLAND_DISPLAY first");
+      return false;
     }
+
+    pipeline += " display=" + std::string(getenv("WAYLAND_DISPLAY"));
     pipeline += " name=video_sink";
   } else {
     pipeline += " ! appsink sync=false max-buffers=2 name=app_sink";
@@ -475,12 +477,7 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
 
   if(match == std::nullopt)
   {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - not sure how to link this sink to an exported window");
-    return false;
-  }
-
-  if(!getenv("WAYLAND_DISPLAY")) {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - please set WAYLAND_DISPLAY first");
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - the sink specificied is not supported for exporting a window");
     return false;
   }
 
@@ -524,12 +521,10 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
   }
 
   // set a wait for a message back if we can wire up the video sink to the display
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - video sink is a overlay");
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - video sink is a overlay, requesting linkeage");
 
   //gst_bus_add_watch(data.bus, (GstBusFunc)BusSyncHandler, this);
   gst_bus_set_sync_handler(data.bus, BusSyncHandler, this, nullptr);
-
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - finished exporting window");
 
   return true;
 }
@@ -608,18 +603,21 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
               ? GST_CLOCK_TIME_NONE
               : static_cast<int64_t>(packet.pts / DVD_TIME_BASE * AV_TIME_BASE);
 
-  // first frame allow through so gstreamer will auto-plug to finish setting up the pipeline
-  if(!m_hasSinkLinkedToSurface) {
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK)
+        && !m_hasSinkLinkedToSurface) {
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - surface not linked - calc. pts: {}", pts);
 
-    // only allow 1 frame through
+    // check we haven't already let one frame through as below
     if(m_isReady) {
       return true;
     }
   }
 
+  // first frame allow through so gstreamer will auto-plug to finish setting up the pipeline
   if(!m_isReady && pts > 0) {
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - calc. pts: {}", pts);
+    return true;
   }
 
   // DVD_NOPTS_VALUE = 18442240474082181120
@@ -703,7 +701,7 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecGStreamer::GetPicture(VideoPicture* pVide
     if (m_state == StreamState::EOS)
       return VC_EOF;
 
-    if (m_state == StreamState::FLUSHED) //|| !m_newFrame)
+    if (m_state == StreamState::FLUSHED) // || !m_pFrame)
       return VC_BUFFER;
 
     //GstSample *lastSample = nullptr;
@@ -1237,7 +1235,7 @@ GstBusSyncReply CDVDVideoCodecGStreamer::BusSyncHandler(GstBus *bus, GstMessage 
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - setting sink linked to surface");
 
-  static_cast<CDVDVideoCodecGStreamer*>(context)->SetHasSinkLinkedToSurface(true);
+  context->SetHasSinkLinkedToSurface(true);
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - after setting sink linked to surface");
 
