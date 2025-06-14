@@ -1290,12 +1290,15 @@ GstPadProbeReturn CDVDVideoCodecGStreamer::EventProbe(GstPad* pad, GstPadProbeIn
 
     GstEvent* event = gst_pad_probe_info_get_event(info);
     if (GST_EVENT_TYPE(event) == GST_EVENT_FLUSH_START)
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::EventProbe() - Flush start event detected on pad");
+    {
       // Handle flush start: pause decoding or reset state
-    else if (GST_EVENT_TYPE(event) == GST_EVENT_FLUSH_STOP) {
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::EventProbe() - Flush stop event detected on pad");
-      // Handle flush stop: resume decoding or reconfigure pipeline
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::EventProbe() - Flush start event detected on pad");
       context->m_state = StreamState::FLUSHED;
+    }
+    else if (GST_EVENT_TYPE(event) == GST_EVENT_FLUSH_STOP) {
+      // Handle flush stop: resume decoding or reconfigure pipeline
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::EventProbe() - Flush stop event detected on pad");
+      context->m_state = StreamState::READY;
     }
   }
   return GST_PAD_PROBE_PASS;
