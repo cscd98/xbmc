@@ -420,6 +420,12 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
 
     // export a window for the sink to render to
     ExportWindow();
+
+    // listen for flushes
+    GstPad* pad = gst_element_get_static_pad(data.video_sink, "sink");
+    gst_pad_add_probe(pad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
+                      EventProbe, this, nullptr);
+    gst_object_unref(pad);
   }
   else
   {
@@ -1274,4 +1280,23 @@ GstFlowReturn CDVDVideoCodecGStreamer::CBAutoPlugSelect(GstElement *bin, GstPad 
   }
 
   return GST_FLOW_OK;
+}
+
+GstPadProbeReturn CDVDVideoCodecGStreamer::EventProbe(GstPad* pad, GstPadProbeInfo* info, gpointer user_data)
+{
+  if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM)
+  {
+    auto* context = static_cast<CDVDVideoCodecGStreamer *>(user_data);
+
+    GstEvent* event = gst_pad_probe_info_get_event(info);
+    if (GST_EVENT_TYPE(event) == GST_EVENT_FLUSH_START)
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::EventProbe() - Flush start event detected on pad");
+      // Handle flush start: pause decoding or reset state
+    else if (GST_EVENT_TYPE(event) == GST_EVENT_FLUSH_STOP) {
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::EventProbe() - Flush stop event detected on pad");
+      // Handle flush stop: resume decoding or reconfigure pipeline
+      context->m_state = StreamState::FLUSHED;
+    }
+  }
+  return GST_PAD_PROBE_PASS;
 }

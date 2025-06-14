@@ -102,6 +102,7 @@ protected:
   static bool CBSeekData(GstElement * appsrc, guint64 position, gpointer user_data);
   void SetCurrentPts(unsigned long newPts) { m_currentPts = newPts; };
   bool SetState(GstState state);
+  static GstPadProbeReturn EventProbe(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
 
   inline std::optional<VideoSinks> VideoSinkFromString(const std::string& sinkStr)
   {
