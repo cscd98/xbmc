@@ -195,6 +195,7 @@ void CVideoBufferPoolGStreamer::Return(int id)
 
 CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
 : CDVDVideoCodec(processInfo), m_threadRunning{false},
+  m_firstFrameSent{false},
   m_isReady{false}, m_isPlaying{false}, m_hasSample{false},
   m_needData{false},  m_videoSink{"waylandsink"}, m_hasSinkLinkedToSurface{false},
   m_currentPts{0},
@@ -463,7 +464,13 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
 
   if(autoPlug) {
     g_signal_connect (data.decoder, "autoplug-select", G_CALLBACK (CBAutoPlugSelect), this);
+
+    // Attach signal handler for dynamic pads WHY??
+    g_signal_connect(data.decoder, "pad-added", G_CALLBACK(OnDecoderPadAdded), this);
   }
+
+  // allocate resources
+  //SetState(GST_STATE_READY);
 
   if(!StartMessageThread()) {
     return false;
@@ -475,6 +482,53 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   }
 
   return true;
+}
+
+void CDVDVideoCodecGStreamer::OnDecoderPadAdded(GstElement* element, GstPad* pad, gpointer user_data)
+{
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::OnPadAdded: New pad '%s' added to '%s'.", gst_pad_get_name(pad), GST_ELEMENT_NAME(element));
+
+  CDVDVideoCodecGStreamer* context = static_cast<CDVDVideoCodecGStreamer*>(user_data);
+
+  // Attach probe to wait for first frame before linking
+  gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, FirstBufferProbe, context, nullptr);
+}
+
+GstPadProbeReturn CDVDVideoCodecGStreamer::FirstBufferProbe(GstPad* pad, GstPadProbeInfo* info, gpointer user_data)
+{
+  CDVDVideoCodecGStreamer* codec = static_cast<CDVDVideoCodecGStreamer*>(user_data);
+
+  if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)
+  {
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::FirstBufferProbe: First frame detected, now linking pads.");
+
+    GstPad* sinkPad = gst_element_get_static_pad(codec->data.video_sink, "sink");
+    if (!sinkPad)
+    {
+      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::FirstBufferProbe: Failed to get sink pad.");
+      return GST_PAD_PROBE_PASS;
+    }
+
+    GstPadLinkReturn ret = gst_pad_link(pad, sinkPad);
+    if (ret != GST_PAD_LINK_OK)
+    {
+      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::FirstBufferProbe: Pad link failed with error %d", ret);
+    }
+    else
+    {
+      if (!codec->m_firstFrameSent)
+      {
+        CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::FirstBufferProbe: first frame sent.");
+        codec->m_firstFrameSent = true;
+      }
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::FirstBufferProbe: Successfully linked pads.");
+    }
+
+    gst_object_unref(sinkPad);
+    return GST_PAD_PROBE_REMOVE; // Remove probe after linking
+  }
+
+  return GST_PAD_PROBE_PASS;
 }
 
 bool CDVDVideoCodecGStreamer::ExportWindow() {
@@ -556,6 +610,16 @@ bool CDVDVideoCodecGStreamer::SetState(GstState state) {
   return true;
 }
 
+GstState CDVDVideoCodecGStreamer::GetState() {
+
+  GstState state, pending;
+  gst_element_get_state(data.pipeline, &state, &pending, GST_CLOCK_TIME_NONE);
+
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetState(): state {}", state);
+
+  return state;
+}
+
 bool CDVDVideoCodecGStreamer::StartMessageThread() {
 
     if (data.main_loop) {
@@ -564,7 +628,7 @@ bool CDVDVideoCodecGStreamer::StartMessageThread() {
     }
 
     //if(m_preferVideoSink)
-    //  SetState(GST_STATE_PAUSED);
+    //SetState(GST_STATE_PAUSED);
     //else
     SetState(GST_STATE_PLAYING); // auto-plugging needs playing it would seem
 
@@ -612,19 +676,28 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
               ? GST_CLOCK_TIME_NONE
               : static_cast<int64_t>(packet.pts / DVD_TIME_BASE * AV_TIME_BASE);
 
-  if (m_preferVideoSink && !m_hasSinkLinkedToSurface) {
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - surface not linked - calc. pts: {}", pts);
-
-    // check we haven't already let one frame through as below
-    if(m_isReady) {
-      return true;
-    }
-  }
-
-  // first frame allow through so gstreamer will auto-plug to finish setting up the pipeline
-  if(!m_isReady && pts > 0) {
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - calc. pts: {}", pts);
+  if(m_firstFrameSent) {
+    // first frame allow through so gstreamer will auto-plug to finish setting up the pipeline
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready but first frame sent - calc. pts: {} linked: {}",
+      pts, m_hasSinkLinkedToSurface);
     return true;
+
+    /*if (m_preferVideoSink && !m_hasSinkLinkedToSurface) {
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - surface not linked - calc. pts: {}", pts);
+
+      // check we haven't already let one frame through as below
+      if(m_isReady) {
+        return true;
+      }
+    }
+
+    // first frame allow through so gstreamer will auto-plug to finish setting up the pipeline
+    if(!m_isReady && pts > 0) {
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - calc. pts: {}", pts);
+      return true;
+    }*/
+  } else {
+    m_firstFrameSent = true; // clunky
   }
 
   // DVD_NOPTS_VALUE = 18442240474082181120
@@ -1212,17 +1285,6 @@ GstBusSyncReply CDVDVideoCodecGStreamer::BusSyncHandler(GstBus *bus, GstMessage 
     return GST_BUS_PASS;
   }
 
-  if(!G_IS_OBJECT(GST_MESSAGE_SRC(message)) ||
-     !GST_IS_VIDEO_OVERLAY(GST_MESSAGE_SRC(message))) {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer: BusSyncHandler() - message is not an overlay");
-    return GST_BUS_PASS;
-  }
-
-  if(!user_data) {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer: BusSyncHandler() - user_data is missing");
-    return GST_BUS_PASS;
-  }
-
   GstVideoOverlay* overlay = GST_VIDEO_OVERLAY(GST_MESSAGE_SRC(message));
   auto* context = static_cast<CDVDVideoCodecGStreamer *>(user_data);
 
@@ -1246,11 +1308,33 @@ GstBusSyncReply CDVDVideoCodecGStreamer::BusSyncHandler(GstBus *bus, GstMessage 
 
   // we should have a decoder (m_isReady) and now lets play
   if(context->m_isReady) {
-    context->SetState(GST_STATE_PLAYING);
+    //context->SetState(GST_STATE_PLAYING);
   }
   //gst_message_unref(message);
 
   return GST_BUS_DROP;
+}
+
+GstPadProbeReturn CDVDVideoCodecGStreamer::AutoPlugProbe(GstPad* pad, GstPadProbeInfo* info, gpointer user_data)
+{
+  if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)
+  {
+    auto* context = static_cast<CDVDVideoCodecGStreamer *>(user_data);
+
+    if (!context->m_firstFrameSent)
+    {
+      //context->m_firstFrameSent = true;
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: AutoPlugProbe(): Allowing first frame through to trigger autoplug.");
+      return GST_PAD_PROBE_PASS;
+    }
+    else
+    {
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: AutoPlugProbe(): Blocking subsequent frames temporarily.");
+      return GST_PAD_PROBE_DROP;
+    }
+  }
+
+  return GST_PAD_PROBE_PASS;
 }
 
 GstFlowReturn CDVDVideoCodecGStreamer::CBAutoPlugSelect(GstElement *bin, GstPad *pad, GstCaps *caps, GstElementFactory *factory,
@@ -1284,10 +1368,10 @@ GstFlowReturn CDVDVideoCodecGStreamer::CBAutoPlugSelect(GstElement *bin, GstPad 
     if(wrapper->m_preferVideoSink && !wrapper->m_hasSinkLinkedToSurface) {
       // stay in a paused state as we are still waiting for a exported surface
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBAutoPlugSelect() unable to start playing as waiting for exported surface");
-      wrapper->SetState(GST_STATE_PAUSED);
+      //wrapper->SetState(GST_STATE_PAUSED);
     }
     //else
-    //  wrapper->SetState(GST_STATE_PAUSED); // pipeline ready to go
+    //   wrapper->SetState(GST_STATE_PLAYING); // pipeline ready to go
   }
 
   return GST_FLOW_OK;

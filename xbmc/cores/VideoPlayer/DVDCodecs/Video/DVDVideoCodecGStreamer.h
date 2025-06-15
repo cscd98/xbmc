@@ -101,8 +101,12 @@ protected:
   bool ExportWindow();
   static bool CBSeekData(GstElement * appsrc, guint64 position, gpointer user_data);
   void SetCurrentPts(unsigned long newPts) { m_currentPts = newPts; };
+  GstState GetState();
   bool SetState(GstState state);
   static GstPadProbeReturn EventProbe(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
+  static GstPadProbeReturn AutoPlugProbe(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
+  static void OnDecoderPadAdded(GstElement* element, GstPad* pad, gpointer user_data);
+  static GstPadProbeReturn FirstBufferProbe(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
 
   inline std::optional<VideoSinks> VideoSinkFromString(const std::string& sinkStr)
   {
@@ -119,6 +123,7 @@ private:
 
   std::thread m_thread;
   bool m_threadRunning;
+  bool m_firstFrameSent;
   bool m_isReady;
   bool m_isPlaying;
   bool m_hasSample;
