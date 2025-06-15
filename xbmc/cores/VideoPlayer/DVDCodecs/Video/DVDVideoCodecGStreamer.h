@@ -139,5 +139,7 @@ private:
   VideoPicture m_videoBuffer;
   std::shared_ptr<IVideoBufferPool> m_videoBufferPool;
 
+  bool m_preferVideoSink;
+
   static std::atomic<bool> m_InstanceGuard;
 };

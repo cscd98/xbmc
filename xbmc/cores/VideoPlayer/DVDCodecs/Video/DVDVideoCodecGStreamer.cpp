@@ -218,6 +218,9 @@ CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
 
   m_videoBufferPool = std::make_shared<CVideoBufferPoolGStreamer>();
 
+  m_preferVideoSink = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK);
+
   GError* error = nullptr;
 
   /* Initialize GStreamer */
@@ -282,8 +285,7 @@ bool CDVDVideoCodecGStreamer::Open(CDVDStreamInfo &hints, CDVDCodecOptions &opti
       hints.profile, hints.ptsinvalid, hints.codec_tag, hints.extradata.GetSize());
   
   // allow the use of a gstreamer video sink if requested
-  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK))
+  if (m_preferVideoSink)
   {
     CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::Open() - using: {}", m_videoSink);
 
@@ -366,8 +368,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
                         + " ! videoscale name=video_scale"
                         + " ! queue name=my_queue";
 
-  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK)) {
+  if (m_preferVideoSink) {
     pipeline += " ! " + m_videoSink;
 
     if(!getenv("WAYLAND_DISPLAY")) {
@@ -406,8 +407,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   // listen for messages
   gst_bus_add_watch(data.bus, (GstBusFunc)CBBusMessage, this);
 
-  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK))
+  if (m_preferVideoSink)
   {
     CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::Open() - validating sink: {}", m_videoSink);
 
@@ -539,7 +539,7 @@ bool CDVDVideoCodecGStreamer::SetState(GstState state) {
 
   GstStateChangeReturn ret;
 
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::SetState()");
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::SetState(): state {}", state);
   ret = gst_element_set_state(data.pipeline, state);
 
   switch(ret) {
@@ -563,7 +563,10 @@ bool CDVDVideoCodecGStreamer::StartMessageThread() {
       return false;
     }
 
-    SetState(GST_STATE_PLAYING);
+    //if(m_preferVideoSink)
+    //  SetState(GST_STATE_PAUSED);
+    //else
+    SetState(GST_STATE_PLAYING); // auto-plugging needs playing it would seem
 
     data.main_loop = g_main_loop_new(nullptr, false);
 
@@ -609,9 +612,7 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
               ? GST_CLOCK_TIME_NONE
               : static_cast<int64_t>(packet.pts / DVD_TIME_BASE * AV_TIME_BASE);
 
-  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK)
-        && !m_hasSinkLinkedToSurface) {
+  if (m_preferVideoSink && !m_hasSinkLinkedToSurface) {
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - surface not linked - calc. pts: {}", pts);
 
     // check we haven't already let one frame through as below
@@ -693,8 +694,7 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecGStreamer::GetPicture(VideoPicture* pVide
       return VC_BUFFER;
   }*/
 
-  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK)) {
+  if (m_preferVideoSink) {
 
     if(!m_hasSinkLinkedToSurface) {
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetPicture() - surface not linked yet");
@@ -1017,9 +1017,8 @@ void CDVDVideoCodecGStreamer::Reset() {
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: Reset() - unable to stop flushing");
   }
 
-  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK)) {
-          m_videoBuffer.pts = DVD_NOPTS_VALUE;
+  if (m_preferVideoSink) {
+    m_videoBuffer.pts = DVD_NOPTS_VALUE;
   }
 
   m_state = StreamState::FLUSHED;
@@ -1245,6 +1244,10 @@ GstBusSyncReply CDVDVideoCodecGStreamer::BusSyncHandler(GstBus *bus, GstMessage 
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - after setting sink linked to surface");
 
+  // we should have a decoder (m_isReady) and now lets play
+  if(context->m_isReady) {
+    context->SetState(GST_STATE_PLAYING);
+  }
   //gst_message_unref(message);
 
   return GST_BUS_DROP;
@@ -1277,6 +1280,14 @@ GstFlowReturn CDVDVideoCodecGStreamer::CBAutoPlugSelect(GstElement *bin, GstPad 
     // now that we have a pipeline decoder, allow AddData() and GetPicture() to execute
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBAutoPlugSelect() decoder, setting isReady");
     wrapper->SetIsReady(true);
+
+    if(wrapper->m_preferVideoSink && !wrapper->m_hasSinkLinkedToSurface) {
+      // stay in a paused state as we are still waiting for a exported surface
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBAutoPlugSelect() unable to start playing as waiting for exported surface");
+      wrapper->SetState(GST_STATE_PAUSED);
+    }
+    //else
+    //  wrapper->SetState(GST_STATE_PAUSED); // pipeline ready to go
   }
 
   return GST_FLOW_OK;
