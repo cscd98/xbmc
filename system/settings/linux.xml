@@ -231,6 +231,25 @@
           <default>false</default>
           <control type="toggle" />
         </setting>
+        <setting id="videoplayer.gstreamervideosink" type="integer" parent="videoplayer.usegstreamer" label="39213" help="39214">
+          <requirement>HAVE_GSTREAMER</requirement>
+          <visible>true</visible>
+          <dependencies>
+            <dependency type="enable">
+              <condition setting="videoplayer.prefergstreamervideosink" operator="is">true</condition>
+            </dependency>
+          </dependencies>
+          <level>3</level>
+          <default>1</default>
+          <constraints>
+            <options>
+              <option label="39215">0</option> <!-- AutoVideoSink -->
+              <option label="39216">1</option> <!-- WaylandSink -->
+              <option label="39217">2</option> <!-- lxvideosink -->
+            </options>
+          </constraints>
+          <control type="list" format="string" />
+        </setting>
       </group>
     </category>
   </section>

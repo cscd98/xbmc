@@ -197,7 +197,7 @@ CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
 : CDVDVideoCodec(processInfo), m_threadRunning{false},
   m_firstFrameSent{false},
   m_isReady{false}, m_isPlaying{false}, m_hasSample{false},
-  m_needData{false},  m_videoSink{"waylandsink"}, m_hasSinkLinkedToSurface{false},
+  m_needData{false},  m_videoSink{""}, m_hasSinkLinkedToSurface{false},
   m_currentPts{0},
   m_exportedWindowName{""},
   m_name{0}, m_pFrame{nullptr},
@@ -221,6 +221,27 @@ CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
 
   m_preferVideoSink = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
         CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK);
+
+  auto videoSink = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+        CSettings::SETTING_VIDEOPLAYER_GSTREAMERVIDEOSINK);
+
+  switch(videoSink) {
+    case 0:
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): autovideosink");
+      m_videoSink = "autovideosink";
+      break;
+    case 1:
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): waylandsink");
+      m_videoSink = "waylandsink";
+      break;
+    case 2:
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): lxvideosink");
+      m_videoSink = "lxvideosink";
+      break;
+    default:
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): waylandsink default");
+      m_videoSink = "waylandsink";
+  }
 
   GError* error = nullptr;
 
@@ -355,6 +376,14 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     memcpy(m_pCodecContext->extradata, hints.extradata.GetData(), hints.extradata.GetSize());
   }
 
+  // Initialize GStreamer early in the application.
+  // GError *error;
+  /*if (!gst_init_check(nullptr, nullptr, error))
+  {
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - failed to initialize GStreamer");
+    return false;
+  }*/
+
   data.input_caps = gst_ffmpeg_codecid_to_caps(hints.codec, m_pCodecContext, true);
 
   avcodec_free_context(&m_pCodecContext);
@@ -373,7 +402,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     pipeline += " ! " + m_videoSink;
 
     if(!getenv("WAYLAND_DISPLAY")) {
-      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - please set WAYLAND_DISPLAY first");
+      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - please set WAYLAND_DISPLAY first");
       return false;
     }
 
@@ -473,6 +502,22 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     //g_signal_connect(data.decoder, "pad-added", G_CALLBACK(OnDecoderPadAdded), this);
   }
 
+  if(m_videoSink == VideoSinkToString(VideoSinks::LX_VIDEO_SINK)) {
+    // core-type=(string)VDEC, video-port=(int)0, audio-port=(int)-1, mixer-port=(int)-1, active=(boolean)true;
+    GstStructure *res_info = gst_structure_new("resource-info",
+                                             "core-type", G_TYPE_STRING, "VDEC",
+                                             "video-port", G_TYPE_INT, 0,
+                                             "audio-port", G_TYPE_INT, -1,
+                                             "mixer-port", G_TYPE_INT, -1,
+                                             "active", true,
+                                             nullptr);
+
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - has resource-info property");
+    g_object_set(G_OBJECT(data.decoder), "resource-info", res_info, nullptr);
+  } else {
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - no resource-info property");
+  }
+
   // allocate resources
   //SetState(GST_STATE_READY);
 
@@ -537,6 +582,8 @@ GstPadProbeReturn CDVDVideoCodecGStreamer::FirstBufferProbe(GstPad* pad, GstPadP
 
 bool CDVDVideoCodecGStreamer::ExportWindow() {
 
+  CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow()");
+
   auto match = VideoSinkFromString(m_videoSink);
 
   if(match == std::nullopt)
@@ -555,13 +602,19 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
   auto winSystem = GetWinSystem();
   bool supportsExportedWindow = true;
 #endif
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() socket: {}", waylandSocket);
 
   if(!supportsExportedWindow) {
     CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - exported window is not supported!");
     return false;
   }
 
-  g_object_set(G_OBJECT(data.video_sink), "display", waylandSocket, nullptr);
+  if(m_videoSink == VideoSinkToString(VideoSinks::WAYLAND_VIDEO_SINK)) {
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - setting display property");
+    g_object_set(G_OBJECT(data.video_sink), "display", waylandSocket, nullptr);
+  } else {
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - sink does not have a display property");
+  }
 
   // tell waylandsink which display to connect to
   struct wl_display* wlDisplay = winSystem->GetDisplay();
@@ -572,6 +625,8 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
   }
 
   GstContext *context = gst_context_new("GstWaylandDisplayHandleContextType", true);
+
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - gst_structure_set property");
   gst_structure_set(gst_context_writable_structure(context),
                     "display", G_TYPE_POINTER, wlDisplay, nullptr);
   
@@ -586,15 +641,6 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
 
   // set a wait for a message back if we can wire up the video sink to the display
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - video sink is a overlay, requesting linkeage");
-
-  /*GstCaps *caps = gst_caps_new_simple("video/x-raw",
-                                    "format", G_TYPE_STRING, "I420",
-                                    "width", G_TYPE_INT, 1920,
-                                    "height", G_TYPE_INT, 1080,
-                                    "framerate", GST_TYPE_FRACTION, 30, 1,
-                                    NULL);
-  gst_app_src_set_caps(GST_APP_SRC(data.app_source), caps);
-  gst_caps_unref(caps);*/
 
   return true;
 }

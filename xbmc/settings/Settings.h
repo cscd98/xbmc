@@ -134,6 +134,7 @@ public:
   static constexpr auto SETTING_VIDEOPLAYER_USESTARFISHDECODER = "videoplayer.usestarfishdecoder";
   static constexpr auto SETTING_VIDEOPLAYER_USEGSTREAMER = "videoplayer.usegstreamer";
   static constexpr auto SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK = "videoplayer.prefergstreamervideosink";
+  static constexpr auto SETTING_VIDEOPLAYER_GSTREAMERVIDEOSINK = "videoplayer.gstreamervideosink";
   static constexpr auto SETTING_VIDEOPLAYER_USESTAGEFRIGHT = "videoplayer.usestagefright";
   static constexpr auto SETTING_VIDEOPLAYER_LIMITGUIUPDATE = "videoplayer.limitguiupdate";
   static constexpr auto SETTING_VIDEOPLAYER_SUPPORTMVC = "videoplayer.supportmvc";

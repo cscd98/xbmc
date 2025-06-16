@@ -24376,7 +24376,34 @@ msgctxt "#39212"
 msgid "Prefer GSTREAMER videosink to render"
 msgstr ""
 
-#empty strings from id 39213 to 39999
+# Select GStreamer video sink to do the rendering
+#: system/settings/settings.xml
+msgctxt "#39213"
+msgid "Select GSTREAMER renderer"
+msgstr ""
+
+#. Description of setting with label #39213 "Select GSTREAMER renderer"
+#: system/settings/settings.xml
+msgctxt "#39214"
+msgid "Select an GSTREAMER renderer that is installed on your system"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#39215"
+msgid "Auto Video Sink"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#39216"
+msgid "Wayland Sink"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#39217"
+msgid "LG LX Video Sink"
+msgstr ""
+
+#empty strings from id 39217 to 39999
 
 # 40000 to 40800 are reserved for Video Versions feature
 

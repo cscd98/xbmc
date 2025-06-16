@@ -51,9 +51,9 @@ enum class StreamState
 
 enum class VideoSinks
 {
+  AUTO_VIDEO_SINK,
   WAYLAND_VIDEO_SINK,
-  LX_VIDEO_SINK,
-  AUTO_VIDEO_SINK
+  LX_VIDEO_SINK
 };
 
 class CDVDVideoCodecGStreamer : public CDVDVideoCodec
@@ -114,6 +114,17 @@ protected:
     if (sinkStr == "lxvideosink")     return VideoSinks::LX_VIDEO_SINK;
     if (sinkStr == "autovideosink")   return VideoSinks::AUTO_VIDEO_SINK;
     return std::nullopt;
+  }
+
+  std::string VideoSinkToString(VideoSinks sink)
+  {
+    switch(sink)
+    {
+      case VideoSinks::AUTO_VIDEO_SINK:    return "autovideosink";
+      case VideoSinks::WAYLAND_VIDEO_SINK: return "waylandsink";
+      case VideoSinks::LX_VIDEO_SINK:      return "lxvideosink";
+      default:                             return "";
+    }
   }
 
   StreamState m_state{StreamState::FLUSHED};
