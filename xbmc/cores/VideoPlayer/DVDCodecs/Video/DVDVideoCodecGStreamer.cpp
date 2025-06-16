@@ -309,7 +309,7 @@ bool CDVDVideoCodecGStreamer::Open(CDVDStreamInfo &hints, CDVDCodecOptions &opti
   // allow the use of a gstreamer video sink if requested
   if (m_preferVideoSink)
   {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::Open() - using: {}", m_videoSink);
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - using: {}", m_videoSink);
 
     m_videoBuffer.Reset();
 
@@ -442,7 +442,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
 
   if (m_preferVideoSink)
   {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::Open() - validating sink: {}", m_videoSink);
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - validating sink: {}", m_videoSink);
 
     data.video_sink = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_sink");
 
@@ -582,7 +582,7 @@ GstPadProbeReturn CDVDVideoCodecGStreamer::FirstBufferProbe(GstPad* pad, GstPadP
 
 bool CDVDVideoCodecGStreamer::ExportWindow() {
 
-  CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow()");
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow()");
 
   auto match = VideoSinkFromString(m_videoSink);
 
@@ -624,12 +624,15 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
     return false;
   }
 
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - have got wl_display!");
+
+  // GST_WAYLAND_DISPLAY_HANDLE_CONTEXT_TYPE
   GstContext *context = gst_context_new("GstWaylandDisplayHandleContextType", true);
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - gst_structure_set property");
   gst_structure_set(gst_context_writable_structure(context),
                     "display", G_TYPE_POINTER, wlDisplay, nullptr);
-  
+
   // Push context to sink
   gst_element_set_context(data.video_sink, context);
   gst_context_unref(context);
@@ -637,6 +640,7 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
   // tell waylandsink which surface to render to
   if (!GST_IS_VIDEO_OVERLAY(data.video_sink)) {
     CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - sink does not support GstVideoOverlay interface");
+    return false;
   }
 
   // set a wait for a message back if we can wire up the video sink to the display
