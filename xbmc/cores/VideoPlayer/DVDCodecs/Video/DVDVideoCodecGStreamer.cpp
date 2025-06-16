@@ -748,22 +748,24 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() buffer dts {} pts {} first frame {}",
     buffer->dts, buffer->pts, isFirstFrame);
 
-  m_lastBuffer = buffer;
+  m_lastBuffer = gst_buffer_ref(buffer);
 
   /* Push the buffer into the appsrc */
-  g_signal_emit_by_name(data.app_source, "push-buffer", buffer, &ret);
-  /*  g_idle_add([](gpointer user_data) -> gboolean {
-      CDVDVideoCodecGStreamer* codec = static_cast<CDVDVideoCodecGStreamer*>(user_data);
-      //GstBuffer* buffer = codec->GenerateBuffer();  // Assume this gets your next buffer
+  //g_signal_emit_by_name(data.app_source, "push-buffer", buffer, &ret);
+  g_idle_add([](gpointer user_data) -> gboolean {
+    CDVDVideoCodecGStreamer* codec = static_cast<CDVDVideoCodecGStreamer*>(user_data);
+    //GstBuffer* buffer = codec->GenerateBuffer();  // Assume this gets your next buffer
 
-      if (codec->m_lastBuffer)
-      {
-          GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(codec->data.app_source), codec->m_lastBuffer);
-          CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - Buffer pushed with status: {}", ret);
-      }
+    if (codec->m_lastBuffer)
+    {
+      GstFlowReturn ret;
+      g_signal_emit_by_name(codec->data.app_source, "push-buffer", codec->m_lastBuffer, &ret);
+      // = gst_app_src_push_buffer(GST_APP_SRC(codec->data.app_source), codec->m_lastBuffer);
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - Buffer pushed with status: {}", ret);
+    }
 
-      return G_SOURCE_REMOVE;  // Remove idle source after execution
-  }, this);*/
+    return G_SOURCE_REMOVE;  // Remove idle source after execution
+  }, this);
 
   //ret = gst_app_src_push_buffer(GST_APP_SRC(data.app_source), buffer);
 
