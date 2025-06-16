@@ -122,6 +122,7 @@ private:
   GstPipelineData data;
 
   std::thread m_thread;
+  std::mutex m_loopMutex;
   bool m_threadRunning;
   bool m_firstFrameSent;
   bool m_isReady;
@@ -147,4 +148,6 @@ private:
   bool m_preferVideoSink;
 
   static std::atomic<bool> m_InstanceGuard;
+
+  GstBuffer *m_lastBuffer;
 };

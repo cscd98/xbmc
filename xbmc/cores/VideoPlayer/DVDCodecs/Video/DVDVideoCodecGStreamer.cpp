@@ -405,6 +405,9 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   data.queue = gst_bin_get_by_name(GST_BIN(data.pipeline), "my_queue");
   data.bus = gst_pipeline_get_bus(GST_PIPELINE(data.pipeline));
 
+  // setup linkeage early for an exported window handler
+  gst_bus_set_sync_handler(data.bus, BusSyncHandler, this, nullptr);
+
   // listen for messages
   gst_bus_add_watch(data.bus, (GstBusFunc)CBBusMessage, this);
 
@@ -423,10 +426,10 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     ExportWindow();
 
     // listen for flushes
-    GstPad* pad = gst_element_get_static_pad(data.video_sink, "sink");
+    /*GstPad* pad = gst_element_get_static_pad(data.video_sink, "sink");
     gst_pad_add_probe(pad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
                       EventProbe, this, nullptr);
-    gst_object_unref(pad);
+    gst_object_unref(pad);*/
   }
   else
   {
@@ -450,9 +453,9 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
       GST_APP_STREAM_TYPE_RANDOM_ACCESS (2) – The stream is seekable and seeking is fast, such as in a local file. (PULL)
   */
   g_object_set(G_OBJECT(data.app_source),
-              "stream-type", 1, // stream-type is stream or seekable for push mode
+              "stream-type", GST_APP_STREAM_TYPE_SEEKABLE, // stream-type is stream or seekable for push mode
               "format", GST_FORMAT_TIME, // GST_FORMAT_TIME (3) for timestamped buffers
-              "is-live", true,
+              "is-live", false,
               nullptr);
 
   if(!data.app_source) {
@@ -486,7 +489,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
 
 void CDVDVideoCodecGStreamer::OnDecoderPadAdded(GstElement* element, GstPad* pad, gpointer user_data)
 {
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::OnPadAdded: New pad '%s' added to '%s'.", gst_pad_get_name(pad), GST_ELEMENT_NAME(element));
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::OnPadAdded: New pad '{}' added to '{}'.", gst_pad_get_name(pad), GST_ELEMENT_NAME(element));
 
   CDVDVideoCodecGStreamer* context = static_cast<CDVDVideoCodecGStreamer*>(user_data);
 
@@ -519,7 +522,7 @@ GstPadProbeReturn CDVDVideoCodecGStreamer::FirstBufferProbe(GstPad* pad, GstPadP
       if (!codec->m_firstFrameSent)
       {
         CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::FirstBufferProbe: first frame sent.");
-        codec->m_firstFrameSent = true;
+        //codec->m_firstFrameSent = true;
       }
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::FirstBufferProbe: Successfully linked pads.");
     }
@@ -583,8 +586,14 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
   // set a wait for a message back if we can wire up the video sink to the display
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - video sink is a overlay, requesting linkeage");
 
-  //gst_bus_add_watch(data.bus, (GstBusFunc)BusSyncHandler, this);
-  gst_bus_set_sync_handler(data.bus, BusSyncHandler, this, nullptr);
+  /*GstCaps *caps = gst_caps_new_simple("video/x-raw",
+                                    "format", G_TYPE_STRING, "I420",
+                                    "width", G_TYPE_INT, 1920,
+                                    "height", G_TYPE_INT, 1080,
+                                    "framerate", GST_TYPE_FRACTION, 30, 1,
+                                    NULL);
+  gst_app_src_set_caps(GST_APP_SRC(data.app_source), caps);
+  gst_caps_unref(caps);*/
 
   return true;
 }
@@ -601,6 +610,8 @@ bool CDVDVideoCodecGStreamer::SetState(GstState state) {
       CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::SetState() - GST_STATE_CHANGE_FAILURE, returned false");
       return false;
     case GST_STATE_CHANGE_NO_PREROLL:
+      // Live sources don’t buffer data before playback, so they return GST_STATE_CHANGE_NO_PREROLL instead of
+      // waiting for a preroll buffer.
       CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::SetState() - GST_STATE_CHANGE_NO_PREROLL");
       break;
     default:
@@ -630,7 +641,7 @@ bool CDVDVideoCodecGStreamer::StartMessageThread() {
     //if(m_preferVideoSink)
     //SetState(GST_STATE_PAUSED);
     //else
-    SetState(GST_STATE_PLAYING); // auto-plugging needs playing it would seem
+    SetState(GST_STATE_PAUSED); // auto-plugging needs playing it would seem
 
     data.main_loop = g_main_loop_new(nullptr, false);
 
@@ -641,6 +652,15 @@ bool CDVDVideoCodecGStreamer::StartMessageThread() {
 
     return true;
 }
+
+/*void ScheduleWork()
+{
+    std::lock_guard<std::mutex> lock(loopMutex);
+    g_idle_add([](gpointer user_data) -> gboolean {
+        CLog::Log(LOGDEBUG, "Thread-safe operation inside main loop.");
+        return G_SOURCE_REMOVE;
+    }, nullptr);
+}*/
 
 // add data, decoder has to consume the entire packet
 bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
@@ -696,8 +716,6 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - calc. pts: {}", pts);
       return true;
     }*/
-  } else {
-    m_firstFrameSent = true; // clunky
   }
 
   // DVD_NOPTS_VALUE = 18442240474082181120
@@ -720,23 +738,46 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
   GST_BUFFER_PTS      (buffer) = pts;
   GST_BUFFER_DURATION (buffer) = packet.duration;
 
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() buffer dts {} pts {}",
-    buffer->dts, buffer->pts);
+  bool isFirstFrame = false;
+  if (!m_firstFrameSent)
+  {
+    m_firstFrameSent = true;
+    isFirstFrame = true;
+  }
+
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() buffer dts {} pts {} first frame {}",
+    buffer->dts, buffer->pts, isFirstFrame);
+
+  m_lastBuffer = buffer;
 
   /* Push the buffer into the appsrc */
-  g_signal_emit_by_name(data.app_source, "push-buffer", buffer, &ret);
+  //g_signal_emit_by_name(data.app_source, "push-buffer", buffer, &ret);
+    g_idle_add([](gpointer user_data) -> gboolean {
+      CDVDVideoCodecGStreamer* codec = static_cast<CDVDVideoCodecGStreamer*>(user_data);
+      //GstBuffer* buffer = codec->GenerateBuffer();  // Assume this gets your next buffer
+
+      if (codec->m_lastBuffer)
+      {
+          GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(codec->data.app_source), codec->m_lastBuffer);
+          CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - Buffer pushed with status: {}", ret);
+      }
+
+      return G_SOURCE_REMOVE;  // Remove idle source after execution
+  }, this);
+
   //ret = gst_app_src_push_buffer(GST_APP_SRC(data.app_source), buffer);
+
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() pushing buffer");
 
   /* Free the buffer now that we are done with it */
   gst_buffer_unref(buffer);
 
-  if (ret != GST_FLOW_OK) {
-    /* We got some error, stop sending data */
+  /*if (ret != GST_FLOW_OK) {
+    // We got some error, stop sending data
     CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::AddData() - pushing the buffer failed");
     Stop();
     return false;
-  }
+  }*/
 
   return true;
 }
@@ -843,6 +884,8 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecGStreamer::GetPicture(VideoPicture* pVide
   /*if(lastSample) {
     sample = lastSample;
   } else {*/
+    //std::mutex appsinkMutex;
+    //std::lock_guard<std::mutex> lock(appsinkMutex);
     sample = gst_app_sink_try_pull_sample((GstAppSink *)data.app_sink, PULL_SAMPLE_TIMEOUT); // optional timeout
   //}
 
@@ -1108,6 +1151,7 @@ void CDVDVideoCodecGStreamer::Stop()
     g_main_loop_quit(data.main_loop);
   }
 
+  std::lock_guard<std::mutex> lock(m_loopMutex);
   if(m_threadRunning) {
     if(m_thread.joinable()) {
       m_thread.join();
@@ -1179,6 +1223,13 @@ gboolean CDVDVideoCodecGStreamer::CBBusMessage(GstBus *bus, GstMessage *message,
   GstMessageType messageType = GST_MESSAGE_TYPE(message);
   GError *err = nullptr;
   gchar *debug = nullptr;
+
+  /*if(gst_is_video_overlay_prepare_window_handle_message(message))
+  {
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer: CBBusMessage() overlay msg in CBBusMessage!");
+
+    //BusSyncHandler(bus, message, data);
+  }*/
 
   switch (messageType) {
     case GST_MESSAGE_ERROR:
@@ -1277,13 +1328,15 @@ CWinSystemWayland* CDVDVideoCodecGStreamer::GetWinSystem()
 
 GstBusSyncReply CDVDVideoCodecGStreamer::BusSyncHandler(GstBus *bus, GstMessage *message, gpointer user_data)
 {
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - window handle message for: {}",
-    G_OBJECT_TYPE_NAME(GST_MESSAGE_SRC(message)));
-
   if(!gst_is_video_overlay_prepare_window_handle_message(message))
   {
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - not over lay window handle msg for: {} GST_BUS_PASS",
+    G_OBJECT_TYPE_NAME(GST_MESSAGE_SRC(message)));
     return GST_BUS_PASS;
   }
+
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - window handle message for: {}",
+    G_OBJECT_TYPE_NAME(GST_MESSAGE_SRC(message)));
 
   GstVideoOverlay* overlay = GST_VIDEO_OVERLAY(GST_MESSAGE_SRC(message));
   auto* context = static_cast<CDVDVideoCodecGStreamer *>(user_data);
@@ -1368,7 +1421,7 @@ GstFlowReturn CDVDVideoCodecGStreamer::CBAutoPlugSelect(GstElement *bin, GstPad 
     if(wrapper->m_preferVideoSink && !wrapper->m_hasSinkLinkedToSurface) {
       // stay in a paused state as we are still waiting for a exported surface
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBAutoPlugSelect() unable to start playing as waiting for exported surface");
-      //wrapper->SetState(GST_STATE_PAUSED);
+      wrapper->SetState(GST_STATE_PLAYING); // hopefully cause it so export
     }
     //else
     //   wrapper->SetState(GST_STATE_PLAYING); // pipeline ready to go
