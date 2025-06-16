@@ -453,9 +453,9 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
       GST_APP_STREAM_TYPE_RANDOM_ACCESS (2) – The stream is seekable and seeking is fast, such as in a local file. (PULL)
   */
   g_object_set(G_OBJECT(data.app_source),
-              "stream-type", GST_APP_STREAM_TYPE_SEEKABLE, // stream-type is stream or seekable for push mode
+              "stream-type", 1, // stream-type is stream or seekable for push mode
               "format", GST_FORMAT_TIME, // GST_FORMAT_TIME (3) for timestamped buffers
-              "is-live", false,
+              "is-live", true,
               nullptr);
 
   if(!data.app_source) {
@@ -641,7 +641,7 @@ bool CDVDVideoCodecGStreamer::StartMessageThread() {
     //if(m_preferVideoSink)
     //SetState(GST_STATE_PAUSED);
     //else
-    SetState(GST_STATE_PAUSED); // auto-plugging needs playing it would seem
+    SetState(GST_STATE_PLAYING); // auto-plugging needs playing it would seem
 
     data.main_loop = g_main_loop_new(nullptr, false);
 
@@ -696,13 +696,13 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
               ? GST_CLOCK_TIME_NONE
               : static_cast<int64_t>(packet.pts / DVD_TIME_BASE * AV_TIME_BASE);
 
-  if(m_firstFrameSent) {
+  //if(m_firstFrameSent) {
     // first frame allow through so gstreamer will auto-plug to finish setting up the pipeline
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready but first frame sent - calc. pts: {} linked: {}",
-      pts, m_hasSinkLinkedToSurface);
-    return true;
+    //CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready but first frame sent - calc. pts: {} linked: {}",
+    //  pts, m_hasSinkLinkedToSurface);
+    //return true;
 
-    /*if (m_preferVideoSink && !m_hasSinkLinkedToSurface) {
+    if (!m_hasSinkLinkedToSurface) { // m_preferVideoSink &&
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - surface not linked - calc. pts: {}", pts);
 
       // check we haven't already let one frame through as below
@@ -714,9 +714,9 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
     // first frame allow through so gstreamer will auto-plug to finish setting up the pipeline
     if(!m_isReady && pts > 0) {
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - calc. pts: {}", pts);
-      return true;
-    }*/
-  }
+    //  return true;
+    }
+  //}
 
   // DVD_NOPTS_VALUE = 18442240474082181120
   // GST_CLOCK_TIME_NONE = 18446744073709551615
@@ -751,8 +751,8 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
   m_lastBuffer = buffer;
 
   /* Push the buffer into the appsrc */
-  //g_signal_emit_by_name(data.app_source, "push-buffer", buffer, &ret);
-    g_idle_add([](gpointer user_data) -> gboolean {
+  g_signal_emit_by_name(data.app_source, "push-buffer", buffer, &ret);
+  /*  g_idle_add([](gpointer user_data) -> gboolean {
       CDVDVideoCodecGStreamer* codec = static_cast<CDVDVideoCodecGStreamer*>(user_data);
       //GstBuffer* buffer = codec->GenerateBuffer();  // Assume this gets your next buffer
 
@@ -763,7 +763,7 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
       }
 
       return G_SOURCE_REMOVE;  // Remove idle source after execution
-  }, this);
+  }, this);*/
 
   //ret = gst_app_src_push_buffer(GST_APP_SRC(data.app_source), buffer);
 
@@ -1421,7 +1421,7 @@ GstFlowReturn CDVDVideoCodecGStreamer::CBAutoPlugSelect(GstElement *bin, GstPad 
     if(wrapper->m_preferVideoSink && !wrapper->m_hasSinkLinkedToSurface) {
       // stay in a paused state as we are still waiting for a exported surface
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBAutoPlugSelect() unable to start playing as waiting for exported surface");
-      wrapper->SetState(GST_STATE_PLAYING); // hopefully cause it so export
+      //wrapper->SetState(GST_STATE_PLAYING); // hopefully cause it so export
     }
     //else
     //   wrapper->SetState(GST_STATE_PLAYING); // pipeline ready to go
