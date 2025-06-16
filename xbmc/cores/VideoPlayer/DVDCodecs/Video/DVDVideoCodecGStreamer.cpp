@@ -463,13 +463,14 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     return false;
   }
 
+  //g_object_set(G_OBJECT(data.app_source), "do-timestamp", true, NULL); // fix judders on video sink? made no difference?
   g_signal_connect(data.app_source, "seek-data", G_CALLBACK (CBSeekData), this);
 
   if(autoPlug) {
     g_signal_connect (data.decoder, "autoplug-select", G_CALLBACK (CBAutoPlugSelect), this);
 
     // Attach signal handler for dynamic pads WHY??
-    g_signal_connect(data.decoder, "pad-added", G_CALLBACK(OnDecoderPadAdded), this);
+    //g_signal_connect(data.decoder, "pad-added", G_CALLBACK(OnDecoderPadAdded), this);
   }
 
   // allocate resources
