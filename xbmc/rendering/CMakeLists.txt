@@ -7,7 +7,7 @@ if(TARGET ${APP_NAME_LC}::OpenGl OR TARGET ${APP_NAME_LC}::OpenGLES)
   list(APPEND SOURCES MatrixGL.cpp)
   list(APPEND HEADERS MatrixGL.h)
 
-  if(ARCH MATCHES arm AND ENABLE_NEON)
+  if(ARCH MATCHES arm AND ENABLE_NEON AND NOT CPU STREQUAL "arm64-v8a")
     list(APPEND SOURCES MatrixGL.neon.cpp)
     if(NOT DEFINED NEON_FLAGS)
       set_source_files_properties(MatrixGL.neon.cpp PROPERTIES COMPILE_OPTIONS -mfpu=neon)

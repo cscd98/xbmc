@@ -6,7 +6,8 @@ CMAKE_OPTIONS=-DBUILD_SHARED_LIBS=ON \
               -DENABLE_TESTS=OFF \
               -DENABLE_DOCUMENTATION=OFF \
               -DENABLE_UTILS=OFF \
-              -DENABLE_EXAMPLES=OFF
+              -DENABLE_EXAMPLES=OFF \
+							-DUSE_DUMMY_EGL_LIBS=OFF
 
 LIBDYLIB=$(PLATFORM)/build/libEGL.so
 
