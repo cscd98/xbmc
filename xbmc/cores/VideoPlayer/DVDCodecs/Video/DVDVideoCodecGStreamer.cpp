@@ -459,6 +459,12 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     gst_pad_add_probe(pad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
                       EventProbe, this, nullptr);
     gst_object_unref(pad);*/
+
+    if(m_videoSink == VideoSinkToString(VideoSinks::LX_VIDEO_SINK)) {
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - acquire-vdec-handle before");
+      g_signal_connect(data.decoder, "acquire-vdec-handle", G_CALLBACK(my_acquire_vdec_handle), nullptr);
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - acquire-vdec-handle after");
+    }
   }
   else
   {
@@ -481,6 +487,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
       GST_APP_STREAM_TYPE_SEEKABLE (1) – The stream is seekable but seeking might not be very fast, such as data from a webserver. (PUSH)
       GST_APP_STREAM_TYPE_RANDOM_ACCESS (2) – The stream is seekable and seeking is fast, such as in a local file. (PULL)
   */
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - app source stream type");
   g_object_set(G_OBJECT(data.app_source),
               "stream-type", 1, // stream-type is stream or seekable for push mode
               "format", GST_FORMAT_TIME, // GST_FORMAT_TIME (3) for timestamped buffers
@@ -493,9 +500,11 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   }
 
   //g_object_set(G_OBJECT(data.app_source), "do-timestamp", true, NULL); // fix judders on video sink? made no difference?
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - app source - seek data");
   g_signal_connect(data.app_source, "seek-data", G_CALLBACK (CBSeekData), this);
 
   if(autoPlug) {
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - app source - autoplug-select");
     g_signal_connect (data.decoder, "autoplug-select", G_CALLBACK (CBAutoPlugSelect), this);
 
     // Attach signal handler for dynamic pads WHY??
@@ -503,17 +512,16 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   }
 
   if(m_videoSink == VideoSinkToString(VideoSinks::LX_VIDEO_SINK)) {
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - has resource-info property");
     // core-type=(string)VDEC, video-port=(int)0, audio-port=(int)-1, mixer-port=(int)-1, active=(boolean)true;
-    GstStructure *res_info = gst_structure_new("resource-info",
+    /*GstStructure *res_info = gst_structure_new("resource-info", // acquired-resource ?
                                              "core-type", G_TYPE_STRING, "VDEC",
                                              "video-port", G_TYPE_INT, 0,
                                              "audio-port", G_TYPE_INT, -1,
                                              "mixer-port", G_TYPE_INT, -1,
-                                             "active", true,
+                                             "active", TRUE,
                                              nullptr);
-
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - has resource-info property");
-    g_object_set(G_OBJECT(data.decoder), "resource-info", res_info, nullptr);
+    g_object_set(G_OBJECT(data.decoder), "resource-info", res_info, nullptr);*/
   } else {
     CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - no resource-info property");
   }
@@ -530,8 +538,26 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     m_isReady = true;
   }
 
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - returning TRUE");
+
   return true;
 }
+
+gpointer CDVDVideoCodecGStreamer::my_acquire_vdec_handle(GstElement* object, guint arg0, GstCaps* arg1, gpointer user_data)
+{
+  // Ensure that m_exportedSurface is valid and has been set by your export_element() call.
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::my_acquire_vdec_handle");
+
+    //auto winSystem = static_cast<CWinSystemWaylandWebOS*>(GetWinSystem());
+
+    // Cast the user_data back to our class instance.
+    CDVDVideoCodecGStreamer* self = static_cast<CDVDVideoCodecGStreamer*>(user_data);
+    
+    // Now use self as needed. For example, return the exported surface.
+    // Ensure you return the appropriate pointer.
+    //return winSystem->m_exportedSurface;  // assuming m_exportedSurface is defined and valid
+}
+
 
 void CDVDVideoCodecGStreamer::OnDecoderPadAdded(GstElement* element, GstPad* pad, gpointer user_data)
 {
@@ -684,24 +710,28 @@ GstState CDVDVideoCodecGStreamer::GetState() {
 
 bool CDVDVideoCodecGStreamer::StartMessageThread() {
 
-    if (data.main_loop) {
-      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::StartMessageThread() - loop already started");
-      return false;
-    }
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::StartMessageThread()");
 
-    //if(m_preferVideoSink)
-    //SetState(GST_STATE_PAUSED);
-    //else
-    SetState(GST_STATE_PLAYING); // auto-plugging needs playing it would seem
+  if (data.main_loop) {
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::StartMessageThread() - loop already started");
+    return false;
+  }
 
-    data.main_loop = g_main_loop_new(nullptr, false);
+  //if(m_preferVideoSink)
+  //SetState(GST_STATE_PAUSED);
+  //else
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::StartMessageThread() - setting STATE");
+  SetState(GST_STATE_PLAYING); // auto-plugging needs playing it would seem
 
-    m_threadRunning = true;
-    m_thread = std::thread([&]() {
-        g_main_loop_run(data.main_loop);
-    });
+  data.main_loop = g_main_loop_new(nullptr, false);
 
-    return true;
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::StartMessageThread() - starting main loop");
+  m_threadRunning = true;
+  m_thread = std::thread([&]() {
+      g_main_loop_run(data.main_loop);
+  });
+
+  return true;
 }
 
 /*void ScheduleWork()

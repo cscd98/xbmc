@@ -127,6 +127,9 @@ protected:
     }
   }
 
+
+  static gpointer my_acquire_vdec_handle(GstElement* object, guint arg0, GstCaps* arg1, gpointer user_data);
+
   StreamState m_state{StreamState::FLUSHED};
 
 private:

@@ -27,8 +27,10 @@ CRendererStarfish::~CRendererStarfish() = default;
 
 CBaseRenderer* CRendererStarfish::Create(CVideoBuffer* buffer)
 {
-  if (buffer && dynamic_cast<CStarfishVideoBuffer*>(buffer))
+  if (buffer && dynamic_cast<CStarfishVideoBuffer*>(buffer)) {
+    CLog::Log(LOGDEBUG, "CRendererStarfish::Create() - has buffer");
     return new CRendererStarfish();
+  }
   return nullptr;
 }
 
@@ -83,6 +85,8 @@ bool CRendererStarfish::Register()
 
 void CRendererStarfish::ManageRenderArea()
 {
+  CLog::Log(LOGDEBUG, "CRendererStarfish::ManageRenderArea()");
+
   // this hack is needed to get the 2D mode of a 3D movie going
   RENDER_STEREO_MODE stereoMode = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
   if (stereoMode == RENDER_STEREO_MODE_MONO)
