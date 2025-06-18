@@ -6,7 +6,11 @@ PLATFORM=$(NATIVEPLATFORM)
 
 ifeq ($(CROSS_COMPILING),yes)
   ifeq ($(TARGET_PLATFORM),webos)
-    RUST_TARGET = armv7-unknown-linux-gnueabi
+    ifeq ($(CPU),arm64-v8a)
+	  RUST_TARGET = aarch64-unknown-linux-gnu
+    else
+      RUST_TARGET = armv7-unknown-linux-gnueabi
+    endif
   else
     RUST_TARGET = $(HOST)
   endif
