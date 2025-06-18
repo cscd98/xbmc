@@ -382,7 +382,7 @@ case $host in
   aarch64-webos-linux-gnu)
     meson_cpu="aarch64"
     if test "x$use_cpu" = "xauto"; then
-      use_cpu="arm64"
+      use_cpu="arm64-v8a"
     fi
     use_toolchain="${use_toolchain:-/usr}"
     platform_cflags="-fPIC -DPIC -mtune=cortex-a53"
