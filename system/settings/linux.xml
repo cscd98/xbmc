@@ -219,7 +219,7 @@
           <default>false</default>
           <control type="toggle" />
         </setting>
-        <setting id="videoplayer.prefergstreamervideosink" type="boolean" parent="videoplayer.usegstreamer" label="39211" help="39212">
+        <setting id="videoplayer.prefergstreamertorender" type="boolean" parent="videoplayer.usegstreamer" label="39211" help="39212">
           <requirement>HAVE_GSTREAMER</requirement>
           <visible>true</visible>
           <dependencies>
@@ -236,7 +236,7 @@
           <visible>true</visible>
           <dependencies>
             <dependency type="enable">
-              <condition setting="videoplayer.prefergstreamervideosink" operator="is">true</condition>
+              <condition setting="videoplayer.prefergstreamertorender" operator="is">true</condition>
             </dependency>
           </dependencies>
           <level>3</level>

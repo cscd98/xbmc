@@ -29,8 +29,8 @@ COSScreenSaverWebOS::~COSScreenSaverWebOS()
   if (m_requestContext)
   {
     // Luna helper functions return 0 on success
-    if (HUnregisterServiceCallback(m_requestContext.get()))
-      CLog::LogF(LOGWARNING, "Luna request unregister failed");
+    /*if (HUnregisterServiceCallback(m_requestContext.get()))
+      CLog::LogF(LOGWARNING, "Luna request unregister failed");*/
     m_requestContext = nullptr;
   }
 }
@@ -47,28 +47,28 @@ void COSScreenSaverWebOS::Inhibit()
   m_requestContext->pub = true;
   m_requestContext->multiple = true;
   m_requestContext->callback = &OnScreenSaverAboutToStart;
-  if (HLunaServiceCall(LUNA_REGISTER_SCREENSAVER, payload.c_str(), m_requestContext.get()))
+  /*if (HLunaServiceCall(LUNA_REGISTER_SCREENSAVER, payload.c_str(), m_requestContext.get()))
   {
     CLog::LogF(LOGWARNING, "Luna request call failed");
     if (HUnregisterServiceCallback(m_requestContext.get()))
       CLog::LogF(LOGWARNING, "Luna request unregister failed");
     m_requestContext = nullptr;
-  }
+  }*/
 }
 
 void COSScreenSaverWebOS::Uninhibit()
 {
   if (m_requestContext)
   {
-    if (HUnregisterServiceCallback(m_requestContext.get()))
+    /*if (HUnregisterServiceCallback(m_requestContext.get()))
       CLog::LogF(LOGWARNING, "Luna request unregister failed");
-    m_requestContext = nullptr;
+    m_requestContext = nullptr;*/
   }
 }
 
 bool COSScreenSaverWebOS::OnScreenSaverAboutToStart(LSHandle* sh, LSMessage* reply, void* ctx)
 {
-  CVariant request;
+  /*CVariant request;
   const char* msg = HLunaServiceMessage(reply);
   CJSONVariantParser::Parse(msg, request);
 
@@ -92,7 +92,7 @@ bool COSScreenSaverWebOS::OnScreenSaverAboutToStart(LSHandle* sh, LSMessage* rep
   {
     CLog::LogF(LOGWARNING, "Luna response call failed");
     return false;
-  }
+  }*/
 
   return true;
 }

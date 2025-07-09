@@ -31,7 +31,8 @@ bool CLunaPowerManagement::Powerdown()
   std::string json;
   CJSONVariantWriter::Write(shutdown, json, true);
 
-  return HLunaServiceCall(LUNA_POWEROFF, json.c_str(), &context) == 0;
+  return true;
+  //return HLunaServiceCall(LUNA_POWEROFF, json.c_str(), &context) == 0;
 }
 
 bool CLunaPowerManagement::Reboot()
@@ -46,7 +47,8 @@ bool CLunaPowerManagement::Reboot()
   std::string json;
   CJSONVariantWriter::Write(reboot, json, true);
 
-  return HLunaServiceCall(LUNA_REBOOT, json.c_str(), &context) == 0;
+  return true;
+  //return HLunaServiceCall(LUNA_REBOOT, json.c_str(), &context) == 0;
 }
 
 IPowerSyscall* CLunaPowerManagement::CreateInstance()

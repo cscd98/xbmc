@@ -40,6 +40,8 @@ using namespace KODI::WINDOWING::WAYLAND;
 namespace
 {
 constexpr auto PULL_SAMPLE_TIMEOUT = 10;
+static constexpr char const *waylandDisplayHandleContextType =
+	"GstWaylandDisplayHandleContextType";
 } // unnamed namespace
 
 //------------------------------------------------------------------------------
@@ -201,7 +203,8 @@ CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
   m_currentPts{0},
   m_exportedWindowName{""},
   m_name{0}, m_pFrame{nullptr},
-  m_codecControlFlags{0}, m_videoBufferPool{nullptr}
+  m_codecControlFlags{0}, m_videoBufferPool{nullptr},
+  m_player{""}
 {
   data.main_loop = nullptr;
   data.bus = nullptr;
@@ -211,7 +214,6 @@ CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
   data.video_sink = nullptr;
   data.app_source = nullptr;
   data.queue = nullptr;
-  data.pipeline = nullptr;
   data.video_convert = nullptr;
   data.video_scale = nullptr;
   data.decoder = nullptr;
@@ -219,37 +221,65 @@ CDVDVideoCodecGStreamer::CDVDVideoCodecGStreamer(CProcessInfo &processInfo)
 
   m_videoBufferPool = std::make_shared<CVideoBufferPoolGStreamer>();
 
-  m_preferVideoSink = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERVIDEOSINK);
+  // The plugin operates in 3 modes:
+  // a) use appsrc and let kodi do the rendering
+  // b) use a player like playbin3 to autoplug and then let it do its own rendering (GstVideoOverlay)
+  // c) use a player like decodebin to autoplug then expose a wayland display to do the rendering (GstVideoOverlay)
+  m_preferGStreamerRenderer = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+        CSettings::SETTING_VIDEOPLAYER_PREFERGSTREAMERTORENDER);
 
-  auto videoSink = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+  if(m_preferGStreamerRenderer) {
+    //auto rendererSelected = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+    //      CSettings::SETTING_VIDEOPLAYER_GSTREAMERENDERER);
+
+    //switch(rendererSelected) {
+    //  case 0:
+    //    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): decodebin selected");
+    //    m_player = "decodebin";
+    //    m_videoSink = "waylandsink";
+    //    break;
+    //  case 1:
+        CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): playbin3 selected");
+        m_player = "playbin3";
+    //    break;
+    //  default:
+    //    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): initial pipeline options failure");
+    //    return false;
+
+    auto videoSink = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
         CSettings::SETTING_VIDEOPLAYER_GSTREAMERVIDEOSINK);
 
-  switch(videoSink) {
-    case 0:
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): autovideosink");
-      m_videoSink = "autovideosink";
-      break;
-    case 1:
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): waylandsink");
-      m_videoSink = "waylandsink";
-      break;
-    case 2:
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): lxvideosink");
-      m_videoSink = "lxvideosink";
-      break;
-    default:
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): waylandsink default");
-      m_videoSink = "waylandsink";
+        // TODO:
+    /*switch(videoSink) {
+      case 0:
+        CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): autovideosink");
+        m_videoSink = "autovideosink";
+        break;
+      case 1:
+        CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): waylandsink");
+        m_videoSink = "waylandsink";
+        break;
+      case 2:
+        CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): lxvideosink");
+        m_videoSink = "lxvideosink";
+        break;
+      default:
+        CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer(): waylandsink default");
+        m_videoSink = "waylandsink";
+    }*/
   }
 
   GError* error = nullptr;
 
-  /* Initialize GStreamer */
+#ifdef TARGET_WEBOS
+  // Initialize GStreamer - done by gst_cool in webOS
+  gst_cool_init_check(nullptr, nullptr, &error));
+#else
   if(!gst_init_check(nullptr, nullptr, &error)) {
     CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer(): gst_init_check() failed: {}", error->message);
     g_error_free(error);
   }
+#endif
 }
 
 CDVDVideoCodecGStreamer::~CDVDVideoCodecGStreamer()
@@ -306,10 +336,10 @@ bool CDVDVideoCodecGStreamer::Open(CDVDStreamInfo &hints, CDVDCodecOptions &opti
       hints.codec, hints.level,
       hints.profile, hints.ptsinvalid, hints.codec_tag, hints.extradata.GetSize());
   
-  // allow the use of a gstreamer video sink if requested
-  if (m_preferVideoSink)
+  // allow the use of a gstreamer render (video sink) if requested
+  if (m_preferGStreamerRenderer)
   {
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - using: {}", m_videoSink);
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - using: {} and (if specified): {}", m_player, m_videoSink);
 
     m_videoBuffer.Reset();
 
@@ -319,7 +349,7 @@ bool CDVDVideoCodecGStreamer::Open(CDVDStreamInfo &hints, CDVDCodecOptions &opti
     m_videoBuffer.iDisplayHeight = m_hints.height;
     m_videoBuffer.stereoMode = m_hints.stereo_mode;
 
-    m_processInfo.SetVideoDecoderName(std::string(m_videoSink), true );
+    m_processInfo.SetVideoDecoderName(std::string(m_player), true);
     m_processInfo.SetVideoPixelFormat("Surface");
     m_processInfo.SetVideoDimensions(m_hints.width, m_hints.height);
     m_processInfo.SetVideoDeintMethod("hardware");
@@ -376,14 +406,6 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     memcpy(m_pCodecContext->extradata, hints.extradata.GetData(), hints.extradata.GetSize());
   }
 
-  // Initialize GStreamer early in the application.
-  // GError *error;
-  /*if (!gst_init_check(nullptr, nullptr, error))
-  {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - failed to initialize GStreamer");
-    return false;
-  }*/
-
   data.input_caps = gst_ffmpeg_codecid_to_caps(hints.codec, m_pCodecContext, true);
 
   avcodec_free_context(&m_pCodecContext);
@@ -391,14 +413,24 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   gchar *input_caps_char = gst_caps_to_string(data.input_caps);
 
   GError *error = nullptr;
-  std::string pipeline = "appsrc"
-                        + std::string(" caps=\"") + std::string(input_caps_char) + "\" name=video_src"
-                        + " ! decodebin name=my_decoder" // sink-caps
-                        + " ! videoconvert name=video_convert"
-                        + " ! videoscale name=video_scale"
-                        + " ! queue name=my_queue";
 
-  if (m_preferVideoSink) {
+  // build the dynamic pipeline
+  std::string pipeline = "appsrc"
+                        + std::string(" caps=\"") + std::string(input_caps_char) + "\" name=video_src";
+
+  if (m_player.find("decodebin") != std::string::npos) {
+    pipeline += " ! decodebin name=my_decoder"
+                " ! videoconvert name=video_convert"
+                " ! videoscale name=video_scale"
+                " ! queue name=my_queue";
+  }
+
+  if(m_player.find("playbin3") != std::string::npos)  {
+    pipeline += " ! playbin3 name=my_decoder";
+  }
+
+  // attach a specified video sink (e.g waylandsink) if requested from settings
+  if (!m_videoSink.empty()) {
     pipeline += " ! " + m_videoSink;
 
     if(!getenv("WAYLAND_DISPLAY")) {
@@ -407,66 +439,81 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     }
 
     pipeline += " display=" + std::string(getenv("WAYLAND_DISPLAY"));
-    pipeline += " name=video_sink";
-  } else {
+    pipeline += " name=video-sink";
+  }
+
+  // TODO:
+  if(!(m_player.find("decodebin") != std::string::npos) &&
+     !(m_player.find("playbin3") != std::string::npos)) {
+    // set up a appsink instead to retrieve frames individually
     pipeline += " ! appsink sync=false max-buffers=2 name=app_sink";
   }
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline(): pipeline {}", pipeline);
 
-  data.pipeline = gst_parse_launch(pipeline.c_str(), &error);
-  
+  if(pipeline.find("appsink") != std::string::npos) {
+    data.pipeline = gst_parse_launch(pipeline.c_str(), &error);
+    data.app_source = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_src");
+  }
+  else {
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - playbin3 pipeline");
+
+    data.pipeline = gst_element_factory_make("playbin3", "player");
+    data.app_source = gst_element_factory_make("appsrc", "video_src");
+
+    g_object_set(data.app_source, "caps", data.input_caps, NULL);
+    g_object_set(data.pipeline, "source", data.app_source, NULL);
+  }
+
   if (!data.pipeline) {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - Unable to create pipeline: {}", error->message);
+    std::string errorMsg;
+    if(error && error->message) {
+      errorMsg = error->message;
+    }
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - Unable to create pipeline: {}", errorMsg);
+
     return false;
   }
 
+  data.decoder = gst_bin_get_by_name(GST_BIN(data.pipeline), "my_decoder");
+  data.bus = gst_pipeline_get_bus(GST_PIPELINE(data.pipeline));
+
   bool autoPlug = false;
-  if (pipeline.find("decodebin") != std::string::npos) {
+  if (pipeline.find("decodebin") != std::string::npos ||
+      pipeline.find("playbin3") != std::string::npos) {
     autoPlug = true;
+    data.video_convert = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_convert");
+    data.video_scale = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_scale");
+    data.queue = gst_bin_get_by_name(GST_BIN(data.pipeline), "my_queue");
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - autoPlug enabled");
   }
 
-  data.app_source = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_src");
-  data.decoder = gst_bin_get_by_name(GST_BIN(data.pipeline), "my_decoder");
-  data.video_convert = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_convert");
-  data.video_scale = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_scale");
-  data.queue = gst_bin_get_by_name(GST_BIN(data.pipeline), "my_queue");
-  data.bus = gst_pipeline_get_bus(GST_PIPELINE(data.pipeline));
-
-  // setup linkeage early for an exported window handler
+  // setup a sync handler to catch the exported window
   gst_bus_set_sync_handler(data.bus, BusSyncHandler, this, nullptr);
 
   // listen for messages
   gst_bus_add_watch(data.bus, (GstBusFunc)CBBusMessage, this);
 
-  if (m_preferVideoSink)
-  {
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - validating sink: {}", m_videoSink);
+  data.video_sink = gst_bin_get_by_name(GST_BIN(data.pipeline), "video-sink");
 
-    data.video_sink = gst_bin_get_by_name(GST_BIN(data.pipeline), "video_sink");
+  // TODO
+  /*if(!data.video_sink && m_preferGStreamerRenderer) {
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline(): no videosink, unable to use this pipeline");
+    return false;
+  }*/
 
-    if(!data.video_sink) {
-      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline(): no videosink");
-      return false;
-    }
+  // both playbin3 and video sink should support a GstVideoOverlay interface
+  if ((m_player.find("playbin3") != std::string::npos) ||
+      data.video_sink) {
+
+
+    //gst_element_get_state(player, NULL, NULL, GST_CLOCK_TIME_NONE);
 
     // export a window for the sink to render to
-    ExportWindow();
-
-    // listen for flushes
-    /*GstPad* pad = gst_element_get_static_pad(data.video_sink, "sink");
-    gst_pad_add_probe(pad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
-                      EventProbe, this, nullptr);
-    gst_object_unref(pad);*/
-
-    if(m_videoSink == VideoSinkToString(VideoSinks::LX_VIDEO_SINK)) {
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - acquire-vdec-handle before");
-      g_signal_connect(data.decoder, "acquire-vdec-handle", G_CALLBACK(my_acquire_vdec_handle), nullptr);
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::Open() - acquire-vdec-handle after");
-    }
+    ///ExportWindow();
   }
-  else
+
+  if(data.app_sink)
   {
     data.app_sink = gst_bin_get_by_name(GST_BIN(data.pipeline), "app_sink");
 
@@ -481,6 +528,12 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     g_signal_connect(data.app_sink, "new-sample", G_CALLBACK (CBNewSample), this);
   }
 
+  // todo: see PR https://github.com/xbmc/xbmc/pull/26764
+  bool isLive = true;
+  /*std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    isLive = player->IsLiveStream();*/
+
   /*
     stream-type:
       GST_APP_STREAM_TYPE_STREAM (0) – No seeking is supported in the stream, such as a live stream. (PUSH)
@@ -491,7 +544,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   g_object_set(G_OBJECT(data.app_source),
               "stream-type", 1, // stream-type is stream or seekable for push mode
               "format", GST_FORMAT_TIME, // GST_FORMAT_TIME (3) for timestamped buffers
-              "is-live", true,
+              "is-live", isLive,
               nullptr);
 
   if(!data.app_source) {
@@ -511,20 +564,7 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
     //g_signal_connect(data.decoder, "pad-added", G_CALLBACK(OnDecoderPadAdded), this);
   }
 
-  if(m_videoSink == VideoSinkToString(VideoSinks::LX_VIDEO_SINK)) {
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - has resource-info property");
-    // core-type=(string)VDEC, video-port=(int)0, audio-port=(int)-1, mixer-port=(int)-1, active=(boolean)true;
-    /*GstStructure *res_info = gst_structure_new("resource-info", // acquired-resource ?
-                                             "core-type", G_TYPE_STRING, "VDEC",
-                                             "video-port", G_TYPE_INT, 0,
-                                             "audio-port", G_TYPE_INT, -1,
-                                             "mixer-port", G_TYPE_INT, -1,
-                                             "active", TRUE,
-                                             nullptr);
-    g_object_set(G_OBJECT(data.decoder), "resource-info", res_info, nullptr);*/
-  } else {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::CreatePipeline() - no resource-info property");
-  }
+
 
   // allocate resources
   //SetState(GST_STATE_READY);
@@ -541,6 +581,219 @@ bool CDVDVideoCodecGStreamer::CreatePipeline(CDVDStreamInfo &hints, CDVDCodecOpt
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreatePipeline() - returning TRUE");
 
   return true;
+}
+
+#ifdef TARGET_WEBOS
+namespace
+{
+constexpr const char* LUNA_VIDEOUTPUT_CONNECT = "luna://com.webos.service.videooutput/connect";
+} // namespace
+
+bool CDVDVideoCodecGStreamer::CreateCustomPlayer() {
+
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CreateCustomPlayer()");
+
+  // gst_segment_init(this + 0x990,3);
+  data.pipeline = gst_pipeline_new("custom-player");
+
+  // setResource(692)
+  // core-type=(string)VDEC, video-port=(int)0, audio-port=(int)-1, mixer-port=(int)-1, active=(boolean)true;
+  GstStructure *acquiredResource = gst_structure_new("acquired-resource",
+                                             "core-type", G_TYPE_STRING, "VDEC",
+                                             "video-port", G_TYPE_INT, 0,
+                                             "audio-port", G_TYPE_INT, -1,
+                                             "mixer-port", G_TYPE_INT, -1,
+                                             "active", TRUE,
+                                             NULL);
+  g_object_set(G_OBJECT(data.decoder), "resource-info", acquiredResource, NULL);
+
+  // setResource(741)
+  // addSrcElement(1519)/addSrcElement(1544)
+  data.app_source = gst_element_factory_make("appsrc", "video-app-es");
+
+  // setAppsrcBufferLevel(1154)>"} [srcNum:0][BUFFER LEVEL][REQ] MAX : 8388608 (MIN : 1048576 bytes)
+  //g_object_set(data.app_source,"format",3,"max-bytes",uVar8,0,"m in-percent",(uint)(0.0 < fVar9) * (int)fVar9,0);
+
+  // addSrcElement(1550) } set callback of appsrc
+  gst_util_set_object_arg(data.app_source,"stream-type","seekable");
+  g_signal_connect_data(data.app_source,"enough-data",callbackStopFeed,this,0,0);
+  g_signal_connect_data(data.app_source,"seek-data",callbackSeekData,this,0,0);
+
+  gst_bin_add(data.pipeline, data.app_source);
+
+  // handleDeepElementAdded(1179)
+  // TODO
+  // addMiddleElement_ES(1592)
+  data.video_queue = gst_element_factory_make("queue", "video-queue");
+  gst_bin_add(data.pipeline, data.video_queue);
+
+  // check this
+  gst_element_link_many(data.pipeline,data.app_src, data.video_queue,0);
+
+  // audio queue not required at present
+  gst_element_set_state(data.pipeline, 2);
+
+  // internalPause(4275)
+  gst_element_set_state(data.pipeline, 3);
+
+  // setResource(758)
+  // setVdecSinkInfo_ES(2021)
+  // findElementFactory(21)
+  // TODO: findElementFactory
+  uVar3 = gst_element_factory_create(iVar2,0);
+  // addSinkElement_ES(1696)
+  g_signal_connect_data(*(int *)(this + 0x62c),"video- underrun",underrunSignalCb,this,0,0);
+  g_signal_connect_data(*(int *)(this + 0x644),"audio -underrun",underrunSignalCb,this,0,0);
+
+  // setAppSrcCaps(1476)
+  getVideoCaps(this,&local_428);
+  piVar3 = (int *)gst_element_get_static_pad(*(undefin ed4 *)(this + 0x5f8),"src");
+  gst_pad_use_fixed_caps(piVar3);
+  gst_object_unref(piVar3);
+
+  // setResourcePropertyToSink(764)
+
+  UMSConnector::UMSConnector_impl::UMSConnector_impl(const string& name,
+		GMainLoop *mainLoop,   // nullptr, will create new main loop unless use_default_context = true
+		void * user_data,
+		bool use_default_context,
+		const std::string &app_id)
+
+    bool UMSConnector::UMSConnector_impl::sendMessage(const string &uri,const string &payload,
+		UMSConnectorEventFunction cb, void *ctx)
+
+  std::string pipelineId = ""; // TBD - ums connector??
+  // libav-connector
+  // iVar4 = LSM::Connector::attachSurface()
+  // LSM::Connector::attachPunchThrough();
+  // kodi-webos[]avc.lsutils{} invokeSyncCall {"uid":"unknown"} Sync call. [luna://com.webos.service.videooutput/connect][{"source":"VDEC","context":"_fFzVTS2oPBCbDd","sourcePort":0,"sink":"MAIN"}]
+
+  using namespace KODI::WINDOWING::WAYLAND;
+  auto winSystem = static_cast<CWinSystemWaylandWebOS*>(CServiceBroker::GetWinSystem());
+
+  if (winSystem->SupportsExportedWindow())
+  {
+    HContext context;
+    context.multiple = false;
+    context.pub = true;
+    context.callback = nullptr;
+
+    CVariant videoOutput;
+    videoOutput["context"] = pipelineId;
+    videoOutput["appId"] = CCompileInfo::GetPackage();
+
+    std::string json;
+    CJSONVariantWriter::Write(videoOutput, json, true);
+
+    // {"context":"_fFzVTS2oPBCbDd","appId":"org.xbmc.kodi"}]
+    HLunaServiceCall(LUNA_VIDEOUTPUT_CONNECT, payload.c_str(), &context);
+  }
+}
+#endif
+
+bool CLunaPowerManagement::Powerdown()
+{
+  HContext context;
+  context.multiple = false;
+  context.pub = true;
+  context.callback = nullptr;
+
+  CVariant shutdown;
+  shutdown["reason"] = "remoteKey";
+  std::string json;
+  CJSONVariantWriter::Write(shutdown, json, true);
+
+  return true;
+  //return HLunaServiceCall(LUNA_POWEROFF, json.c_str(), &context) == 0;
+}
+
+/*   // setVideo and Audio caps according to ghidra - already done in earlier thread
+  //data.bin = gst_element_factory_make("playbin3", "player");
+
+  g_signal_connect(data.bin, "source-setup", G_CALLBACK(CBDynamicAppSrcCallback), NULL);
+  g_object_set(data.bin, "uri", "dynappsrc://", NULL);
+
+  gst_cool_playbin_init(data.bin);
+
+  GstPluginFeature *feature = gst_registry_find_feature(gst_registry_get(), "decproxy",
+    GST_TYPE_ELEMENT_FACTORY);
+
+    if(feature != NULL) {
+      gst_plugin_feature_set_rank(feature, 0); // 300 or 0?
+      gst_object_unref(feature);
+    }
+
+  g_signal_connect(data.bin, "source-setup", G_CALLBACK (CBDynamicAppSrcCallback), this);
+
+  g_signal_connect (data.bin, "deep-element-added",
+    G_CALLBACK (pipeline_deep_element_added_cb), NULL);
+
+  g_signal_emit_by_name(param_1,"new-appsrc",local_340,&data.app_source);
+  //setAppsrcBufferLevel(this,iVar2 + -1);
+
+
+  if (play->desired_state != GST_STATE_PAUSED)
+    gst_element_set_state (play->bin, m_desiredState);
+
+
+static void CDVDVideoCodecGStreamer::CBDynamicAppSrcCallback() {
+
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::CBDynamicAppSrcCallback()");
+
+  GstCaps *caps;
+
+  gst_app_src_set_caps(GST_APP_SRC(data.app_source), data.input_caps);
+  g_object_set(source,
+               "stream-type", GST_APP_STREAM_TYPE_STREAM,
+               "is-live", TRUE,
+               "format", GST_FORMAT_TIME,
+               NULL);
+
+  gst_caps_unref(caps);
+
+  data.app_source = gst_element_get_factory(param_1);
+
+  if(!GST_BIN(appSrc)) {
+
+  }
+
+  gst_util_set_object_arg(data.app_source,"stream-type","seekable");
+  g_signal_connect_data(data.app_source,"enough-data",callbackStopFeed,this,0,0);
+  g_signal_connect_data(data.app_source,"seek-data",callbackSeekData,this,0,0);
+
+}*/
+
+static void
+CDVDVideoCodecGStreamer::pipeline_deep_element_added_cb (GstBin * bin, GstBin * sub_bin,
+    GstElement * child, gpointer user_data)
+{
+  gchar *element_name = gst_element_get_name (child);
+  gchar *subbin_name = gst_element_get_name (GST_ELEMENT_CAST (sub_bin));
+  GstElementFactory *factory = gst_element_get_factory(child);
+
+  if (g_str_has_prefix (element_name, "decproxy")) {
+    g_print ("Found %s\n", element_name);
+  }
+
+  if (factory) {
+    if (gst_element_factory_list_is_type (factory,
+            GST_ELEMENT_FACTORY_TYPE_DECODER)
+        && g_str_has_prefix (subbin_name, "decproxy")) {
+      g_print ("Found %s in %s\n", element_name, subbin_name);
+    } else if (gst_element_factory_list_is_type (factory,
+            GST_ELEMENT_FACTORY_TYPE_SINK)
+        && (g_str_has_prefix (subbin_name, "vbin")
+            || g_str_has_prefix (subbin_name, "videosink")
+            || g_str_has_prefix (subbin_name, "abin")
+            || g_str_has_prefix (subbin_name, "audiosink"))) {
+      g_print ("Found %s in %s\n",
+          gst_plugin_feature_get_plugin_name ((GstPluginFeature *) factory),
+          subbin_name);
+    }
+  }
+
+  g_free (element_name);
+  g_free (subbin_name);
 }
 
 gpointer CDVDVideoCodecGStreamer::my_acquire_vdec_handle(GstElement* object, guint arg0, GstCaps* arg1, gpointer user_data)
@@ -606,17 +859,9 @@ GstPadProbeReturn CDVDVideoCodecGStreamer::FirstBufferProbe(GstPad* pad, GstPadP
   return GST_PAD_PROBE_PASS;
 }
 
-bool CDVDVideoCodecGStreamer::ExportWindow() {
+GstContext *CDVDVideoCodecGStreamer::GetWaylandDisplayContext() {
 
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow()");
-
-  auto match = VideoSinkFromString(m_videoSink);
-
-  if(match == std::nullopt)
-  {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - the sink specificied is not supported for exporting a window");
-    return false;
-  }
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext()");
 
   auto waylandSocket = "/run/user/1000/" + std::string(getenv("WAYLAND_DISPLAY"));
 
@@ -628,51 +873,47 @@ bool CDVDVideoCodecGStreamer::ExportWindow() {
   auto winSystem = GetWinSystem();
   bool supportsExportedWindow = true;
 #endif
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() socket: {}", waylandSocket);
+  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext() socket: {}", waylandSocket);
 
   if(!supportsExportedWindow) {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - exported window is not supported!");
-    return false;
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext() - exported window is not supported!");
+    return nullptr;
   }
 
   if(m_videoSink == VideoSinkToString(VideoSinks::WAYLAND_VIDEO_SINK)) {
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - setting display property");
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext() - setting display property");
     g_object_set(G_OBJECT(data.video_sink), "display", waylandSocket, nullptr);
-  } else {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - sink does not have a display property");
+
+    // tell waylandsink which display to connect to
+    struct wl_display* wlDisplay = winSystem->GetDisplay();
+
+    if(!wlDisplay) {
+      CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext() - could not get wl_display!");
+      return nullptr;
+    }
+
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext() - have got wl_display!");
+
+    GstStructure *s = gst_structure_new(
+      "GstWaylandDisplayHandleContextType",  // This expands to "GstWaylandDisplayHandleContextType"
+      "display", G_TYPE_POINTER, wlDisplay,
+      NULL);
+
+    GstContext *context = gst_context_new("GstWaylandDisplayHandleContextType", TRUE);
+
+    return context;
   }
 
-  // tell waylandsink which display to connect to
-  struct wl_display* wlDisplay = winSystem->GetDisplay();
-
-  if(!wlDisplay) {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - could not get wl_display!");
-    return false;
-  }
-
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - have got wl_display!");
-
-  // GST_WAYLAND_DISPLAY_HANDLE_CONTEXT_TYPE
-  GstContext *context = gst_context_new("GstWaylandDisplayHandleContextType", true);
-
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - gst_structure_set property");
-  gst_structure_set(gst_context_writable_structure(context),
-                    "display", G_TYPE_POINTER, wlDisplay, nullptr);
-
-  // Push context to sink
-  gst_element_set_context(data.video_sink, context);
-  gst_context_unref(context);
-
-  // tell waylandsink which surface to render to
-  if (!GST_IS_VIDEO_OVERLAY(data.video_sink)) {
-    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::ExportWindow() - sink does not support GstVideoOverlay interface");
-    return false;
-  }
+  // tell the sink which surface to render to
+  /*if (!GST_IS_VIDEO_OVERLAY(data.video_sink)) {
+    CLog::Log(LOGERROR, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext() - sink does not support GstVideoOverlay interface");
+    return nullptr;
+  }*/
 
   // set a wait for a message back if we can wire up the video sink to the display
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::ExportWindow() - video sink is a overlay, requesting linkeage");
+  //CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetWaylandDisplayContext() - video sink is a overlay, we are requesting linkeage");
 
-  return true;
+  return nullptr;
 }
 
 bool CDVDVideoCodecGStreamer::SetState(GstState state) {
@@ -681,6 +922,9 @@ bool CDVDVideoCodecGStreamer::SetState(GstState state) {
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::SetState(): state {}", state);
   ret = gst_element_set_state(data.pipeline, state);
+
+  /* Allow some time for auto-plugging (or listen for bus messages) */
+  //gst_element_get_state(player, NULL, NULL, GST_CLOCK_TIME_NONE);
 
   switch(ret) {
     case GST_STATE_CHANGE_FAILURE:
@@ -717,7 +961,7 @@ bool CDVDVideoCodecGStreamer::StartMessageThread() {
     return false;
   }
 
-  //if(m_preferVideoSink)
+  //if(m_preferGStreamerRenderer)
   //SetState(GST_STATE_PAUSED);
   //else
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::StartMessageThread() - setting STATE");
@@ -783,7 +1027,7 @@ bool CDVDVideoCodecGStreamer::AddData(const DemuxPacket &packet)
     //  pts, m_hasSinkLinkedToSurface);
     //return true;
 
-    if (!m_hasSinkLinkedToSurface) { // m_preferVideoSink &&
+    if (!m_hasSinkLinkedToSurface) { // m_preferGStreamerRenderer &&
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::AddData() - pipleline not ready - surface not linked - calc. pts: {}", pts);
 
       // check we haven't already let one frame through as below
@@ -891,7 +1135,7 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecGStreamer::GetPicture(VideoPicture* pVide
       return VC_BUFFER;
   }*/
 
-  if (m_preferVideoSink) {
+  if (m_preferGStreamerRenderer) {
 
     if(!m_hasSinkLinkedToSurface) {
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetPicture() - surface not linked yet");
@@ -917,7 +1161,8 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecGStreamer::GetPicture(VideoPicture* pVide
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetPicture() - no last-sample!");
     }*/
 
-    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetPicture() - using sink: {}", m_videoSink);
+    CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer::GetPicture() - using autoPlug {}: sink (if specified): {}", 
+      m_player, m_videoSink);
 
 #ifdef TARGET_WEBOS
     GObjectClass* klass = G_OBJECT_GET_CLASS(data.video_sink);
@@ -1216,7 +1461,7 @@ void CDVDVideoCodecGStreamer::Reset() {
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: Reset() - unable to stop flushing");
   }
 
-  if (m_preferVideoSink) {
+  if (m_preferGStreamerRenderer) {
     m_videoBuffer.pts = DVD_NOPTS_VALUE;
   }
 
@@ -1358,10 +1603,29 @@ gboolean CDVDVideoCodecGStreamer::CBBusMessage(GstBus *bus, GstMessage *message,
         } else {
           gwPtr->SetIsPlaying(false);
         }
-        CLog::Log(LOGDEBUG, "Pipeline state changed from {} to {}",
+        CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBBusMessage() Pipeline state changed from {} to {}",
           gst_element_state_get_name (old_state), gst_element_state_get_name (new_state));
       }
       break;
+    }
+    case GST_MESSAGE_NEED_CONTEXT: {
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBBusMessage() GST_MESSAGE_NEED_CONTEXT received");
+      const gchar *context_type;
+      gst_message_parse_context_type(message, &context_type);
+
+      if (g_strcmp0(context_type, "GstWaylandDisplayHandleContextType") == 0) {
+          GstContext *context = gwPtr->GetWaylandDisplayContext(); // function that returns above context
+
+          CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBBusMessage() Setting wayland display context");
+          gst_element_set_context(GST_ELEMENT(GST_MESSAGE_SRC(message)), context);
+          gst_context_unref(context);
+
+           GstContext *context = gst_context_new(waylandDisplayHandleContextType, TRUE);
+      gst_structure_set(gst_context_writable_structure (context),
+          "handle", G_TYPE_POINTER, connector->getDisplay(), nullptr);
+      gst_element_set_context(GST_ELEMENT(GST_MESSAGE_SRC(message)), context);
+
+      }
     }
     default:
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBBusMessage() received: {}", gst_message_type_get_name(messageType));
@@ -1434,7 +1698,7 @@ GstBusSyncReply CDVDVideoCodecGStreamer::BusSyncHandler(GstBus *bus, GstMessage 
   gst_video_overlay_set_window_handle(overlay, reinterpret_cast<guintptr>(wlSurface));
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - setting window size");
-  gst_video_overlay_set_render_rectangle(overlay, 0, 0, 1920, 1080);
+  gst_video_overlay_set_render_rectangle(overlay, 0, 0, 1920, 1080); // TODO
 
   CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: BusSyncHandler() - setting sink linked to surface");
 
@@ -1501,7 +1765,7 @@ GstFlowReturn CDVDVideoCodecGStreamer::CBAutoPlugSelect(GstElement *bin, GstPad 
     CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBAutoPlugSelect() decoder, setting isReady");
     wrapper->SetIsReady(true);
 
-    if(wrapper->m_preferVideoSink && !wrapper->m_hasSinkLinkedToSurface) {
+    if(wrapper->m_preferGStreamerRenderer && !wrapper->m_hasSinkLinkedToSurface) {
       // stay in a paused state as we are still waiting for a exported surface
       CLog::Log(LOGDEBUG, "CDVDVideoCodecGStreamer: CBAutoPlugSelect() unable to start playing as waiting for exported surface");
       //wrapper->SetState(GST_STATE_PLAYING); // hopefully cause it so export

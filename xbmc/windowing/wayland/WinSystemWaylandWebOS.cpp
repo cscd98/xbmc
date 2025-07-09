@@ -53,11 +53,11 @@ bool CWinSystemWaylandWebOS::InitWindowSystem()
   m_requestContext->multiple = true;
   m_requestContext->callback = &OnAppLifecycleEventWrapper;
   m_requestContext->userdata = this;
-  if (HLunaServiceCall(LUNA_REGISTER_APP, "{}", m_requestContext.get()))
+  /*if (HLunaServiceCall(LUNA_REGISTER_APP, "{}", m_requestContext.get()))
   {
     CLog::LogF(LOGWARNING, "Luna request call failed");
     m_requestContext = nullptr;
-  }
+  }*/
 
   return true;
 }
@@ -71,13 +71,14 @@ bool CWinSystemWaylandWebOS::CreateNewWindow(const std::string& name,
 
   if (m_webosForeign)
   {
+    CLog::LogF(LOGDEBUG, "CWinSystemWaylandWebOS::CreateNewWindow m_webosForeign");
     m_exportedSurface = m_webosForeign.export_element(
         GetMainSurface(),
         static_cast<uint32_t>(wayland::webos_foreign_webos_exported_type::video_object));
     m_exportedSurface.on_window_id_assigned() =
         [this](std::string window_id, uint32_t exported_type)
     {
-      CLog::LogF(LOGDEBUG, "Foreign video surface exported {}", window_id);
+      CLog::LogF(LOGDEBUG, "CWinSystemWaylandWebOS::CreateNewWindow Foreign video surface exported {}", window_id);
       this->m_exportedWindowName = window_id;
     };
   }

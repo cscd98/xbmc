@@ -98,7 +98,8 @@ protected:
 
   KODI::WINDOWING::WAYLAND::CWinSystemWayland* GetWinSystem();
 
-  bool ExportWindow();
+  //bool ExportWindow();
+  GstContext *GetWaylandDisplayContext();
   static bool CBSeekData(GstElement * appsrc, guint64 position, gpointer user_data);
   void SetCurrentPts(unsigned long newPts) { m_currentPts = newPts; };
   GstState GetState();
@@ -130,6 +131,9 @@ protected:
 
   static gpointer my_acquire_vdec_handle(GstElement* object, guint arg0, GstCaps* arg1, gpointer user_data);
 
+#ifdef TARGET_WEBOS
+  bool CreateCustomPlayer();
+#endif
   StreamState m_state{StreamState::FLUSHED};
 
 private:
@@ -159,9 +163,11 @@ private:
   VideoPicture m_videoBuffer;
   std::shared_ptr<IVideoBufferPool> m_videoBufferPool;
 
-  bool m_preferVideoSink;
+  bool m_preferGStreamerRenderer;
 
   static std::atomic<bool> m_InstanceGuard;
 
   GstBuffer *m_lastBuffer;
+
+  std::string m_player;
 };

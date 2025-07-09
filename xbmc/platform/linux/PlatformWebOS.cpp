@@ -8,6 +8,7 @@
 
 #include "PlatformWebOS.h"
 
+#include "CompileInfo.h"
 #include "ServiceBroker.h"
 #include "filesystem/SpecialProtocol.h"
 #include "powermanagement/LunaPowerManagement.h"
@@ -44,10 +45,22 @@ bool CPlatformWebOS::InitStageOne()
   // $HOME is set to the ipk dir and $LD_LIBRARY_PATH is lib
   const auto HOME = GetHomePath();
 
+  setenv("APPID", CCompileInfo::GetPackage(), 0);
   setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 1);
   setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
   setenv("WAYLAND_DISPLAY", "wayland-0", 1);
   setenv("PYTHONHOME", (HOME + "/lib/python3").c_str(), 1);
+
+  setenv("GST_DEBUG", "3", 1);
+  setenv("GST_DEBUG_FILE", "/media/developer/temp/gst/gst.log", 1);
+  setenv("GST_DEBUG_DUMP_DOT_DIR", "/media/developer/temp/gst", 1);
+  setenv("GST_DEBUG_DUMP_DIR", "/media/developer/temp/gst", 1);
+  setenv("DEBUG_MODE", "enable", 1);
+  setenv("GST_COOL_CONFIG", "/media/developer/temp/gst/gstcool.conf", 1);
+  //setenv("GST_TRACERS", "dots", 1);
+
+  freopen("/media/developer/temp/stdout.log", "w", stdout);  // Redirect stdout
+  freopen("/media/developer/temp/stderr.log", "w", stderr);   // Redirect stderr
 
   std::string pythonPath;
   pythonPath = HOME + "/lib/python3";
