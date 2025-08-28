@@ -18,6 +18,13 @@
 
 #include <sys/resource.h>
 
+#include <iostream>
+
+#include "utils/Variant.h"
+#include "utils/JSONVariantParser.h"
+#include "utils/JSONVariantWriter.h"
+#include "WebAppMgr/DeviceInfoTv.h"
+
 CPlatform* CPlatform::CreateInstance()
 {
   return new CPlatformWebOS();
@@ -38,6 +45,29 @@ std::string CPlatformWebOS::GetHomePath()
   return path.parent_path().string();
 }
 
+
+void GetResolutionFromDeviceInfo() {
+
+  DeviceInfoTv device;
+
+  std::string key = "TvDeviceInfo";
+  std::string value;
+
+  if (device.getDeviceInfo(*reinterpret_cast<WString*>(&key),
+                           *reinterpret_cast<WString*>(&value)) == 0)
+  {
+    CVariant root;
+    if (CJSONVariantParser::Parse(value, root)) {
+      int width = root["screenWidth"].asInteger();
+      int height = root["screenHeight"].asInteger();
+      CLog::Log(LOGINFO, "Resolution: %dx%d", width, height);
+    } else {
+      CLog::Log(LOGERROR, "Failed to parse JSON from TvDeviceInfo");
+    }
+  } else {
+    CLog::Log(LOGERROR, "getDeviceInfo(\"TvDeviceInfo\") failed");
+  }
+}
 bool CPlatformWebOS::InitStageOne()
 {
   // WebOS ipks run in a chroot like std::filesystem::current_pathenvironment
@@ -59,6 +89,8 @@ bool CPlatformWebOS::InitStageOne()
   setenv("KODI_HOME", HOME.c_str(), 1);
   setenv("SSL_CERT_FILE",
          CSpecialProtocol::TranslatePath("special://xbmc/system/certs/cacert.pem").c_str(), 1);
+
+  GetResolutionFromDeviceInfo();
 
   return CPlatformLinux::InitStageOne();
 }
