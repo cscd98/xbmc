@@ -11,5 +11,6 @@
   "spinnerOnLaunch": false,
   "handlesRelaunch": true,
   "nativeLifeCycleInterfaceVersion": 2,
-  "requiredMemory": 500
+  "requiredMemory": 500,
+  "privilegedJail": true
 }
