@@ -382,6 +382,8 @@ private:
    */
   unsigned int GetQueueLevel(StreamType type) const;
 
+  void UpdateAppSrcVC1Caps();
+
   std::condition_variable m_eventCondition;
   std::mutex m_eventMutex;
 

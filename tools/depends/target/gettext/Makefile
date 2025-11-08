@@ -10,9 +10,9 @@ CONFIGURE=cp -f $(CONFIG_SUB) $(CONFIG_GUESS) build-aux/; \
     --with-included-glib \
     --with-included-libcroco \
     --with-included-libxml \
-    --without-git --without-cvs --disable-shared --disable-curses \
+    --without-git --without-cvs --disable-curses \
 
-LIBDYLIB=$(PLATFORM)/gettext-runtime/intl/.libs/libintl.a
+LIBDYLIB=$(PLATFORM)/gettext-runtime/intl/.libs/libintl.so
 
 all: .installed-$(PLATFORM)
 

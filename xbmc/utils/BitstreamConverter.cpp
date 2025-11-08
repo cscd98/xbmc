@@ -479,6 +479,43 @@ bool CBitstreamConverter::Open(enum AVCodecID codec, uint8_t *in_extradata, int 
       }
       return false;
       break;
+    case AV_CODEC_ID_VC1:
+    {
+      if (!in_extradata || in_extrasize == 0)
+      {
+        CLog::Log(LOGERROR, "CBitstreamConverter::Open VC1 missing extradata");
+        return false;
+      }
+
+      // VC-1 headers (sequence + entrypoint) are in extradata.
+      m_extraData = FFmpegExtraData(in_extradata, in_extrasize);
+      m_convert_bitstream = true;
+      m_start_decode = false;
+
+      // --- Log extradata ---
+      const uint8_t* ed = m_extraData.GetData();
+      int edSize = m_extraData.GetSize();
+      if (!ed || edSize < 16)
+      {
+        CLog::Log(LOGERROR, "BitstreamConvertVC1: extradata missing or too small ({} bytes)", edSize);
+        return false;
+      }
+
+      int dump = std::min(edSize, 64);
+      std::string hex;
+      for (int i = 0; i < dump; ++i)
+        hex += StringUtils::Format("{:02X} ", ed[i]);
+      CLog::Log(LOGDEBUG, "VC1: extradata size={} dump[{}]: {}", edSize, dump, hex);
+
+      return true;
+    }
+    case AV_CODEC_ID_WMV3:
+    {
+      // WMV3 (Main Profile) does not use Annex‑G headers
+      m_convert_bitstream = false; // no conversion needed
+      m_start_decode = true;
+      return true;
+    }
     default:
       return false;
       break;
@@ -1024,6 +1061,280 @@ fail:
   av_free(*poutbuf), *poutbuf = NULL;
   *poutbuf_size = 0;
   return false;
+}
+
+#ifndef VC1_CODE_SEQHDR
+#define VC1_CODE_SEQHDR     0x0000010F
+#endif
+#ifndef VC1_CODE_ENTRYPOINT
+#define VC1_CODE_ENTRYPOINT 0x0000010E
+#endif
+#ifndef VC1_CODE_FRAME
+#define VC1_CODE_FRAME      0x0000010D
+#endif
+
+#ifndef VC1_CODE_SEQUENCE
+#define VC1_CODE_SEQUENCE   0x0000010F
+#endif
+#ifndef VC1_CODE_ENTRYPOINT
+#define VC1_CODE_ENTRYPOINT 0x0000010E
+#endif
+#ifndef VC1_CODE_FRAME
+#define VC1_CODE_FRAME      0x0000010D
+#endif
+
+static inline void put_le32(uint8_t* p, uint32_t v) {
+  p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF; p[3] = (v >> 24) & 0xFF;
+}
+
+static inline void put_be32(uint8_t* p, uint32_t v) {
+  p[0] = (v >> 24) & 0xFF; p[1] = (v >> 16) & 0xFF; p[2] = (v >> 8) & 0xFF; p[3] = v & 0xFF;
+}
+
+static inline bool match_startcode3(const uint8_t* d, int sz, uint8_t code) {
+  return sz >= 4 && d[0]==0x00 && d[1]==0x00 && d[2]==0x01 && d[3]==code;
+}
+static inline bool match_startcode4(const uint8_t* d, int sz, uint8_t code) {
+  return sz >= 5 && d[0]==0x00 && d[1]==0x00 && d[2]==0x00 && d[3]==0x01 && d[4]==code;
+}
+
+#include "utils/log.h"
+
+static inline bool vc1_has_startcode(const uint8_t* p, int size)
+{
+  return size >= 4 && p[0] == 0x00 && p[1] == 0x00 && p[2] == 0x01;
+}
+
+static inline int vc1_startcode_type(const uint8_t* p, int size)
+{
+  return vc1_has_startcode(p, size) ? p[3] : -1; // 0x0F seq, 0x0E entry, 0x0D picture
+}
+
+static inline int vc1_find_next_startcode(const uint8_t* p, int size)
+{
+  for (int i = 0; i + 3 < size; ++i)
+    if (p[i] == 0x00 && p[i+1] == 0x00 && p[i+2] == 0x01)
+      return i;
+  return -1;
+}
+
+bool CBitstreamConverter::BitstreamConvertVC1(uint8_t* pData, int iSize)
+{
+  // VC-1 bitstream conversion for stream-format=asf
+  //
+  // First frame from demuxer contains:
+  //   00 00 01 0F ... (seq header, malformed start code)
+  //   00 00 01 0E ... (entry point)
+  //   00 00 01 0D ... (actual I-frame data)
+  //
+  // Subsequent frames contain:
+  //   00 00 01 0D ... (P/B frame data)
+  //
+  // Output should be:
+  //   00 00 01 0D ... (seq header, fixed)
+  //   00 00 01 0E ... (entry point)
+  //   00 00 01 0F ... (frame start code)
+  //   <raw frame data>
+
+  if (!pData || iSize < 1)
+    return true;
+
+  const uint8_t* extraData = m_extraData.GetData();
+  size_t extraSize = m_extraData.GetSize();
+
+  if (!extraData || extraSize == 0)
+  {
+    CLog::Log(LOGERROR, "CBitstreamConverter::BitstreamConvertVC1: No extradata available");
+    return false;
+  }
+
+  int logBytes = std::min(iSize, 64);
+  std::string inHex;
+  for (int i = 0; i < logBytes; ++i)
+    inHex += StringUtils::Format("{:02X} ", pData[i]);
+  CLog::Log(LOGDEBUG, "VC1: input size={} head={}", iSize, inHex);
+
+  // Parse extradata to get sequence header and entry point
+  const uint8_t* seqHeader = nullptr;
+  size_t seqHeaderSize = 0;
+  const uint8_t* entryPoint = nullptr;
+  size_t entryPointSize = 0;
+
+  for (size_t i = 0; i < extraSize - 3; i++)
+  {
+    if (extraData[i] == 0x00 && extraData[i + 1] == 0x00 && extraData[i + 2] == 0x01)
+    {
+      uint8_t code = extraData[i + 3];
+
+      size_t nextStartCode = extraSize;
+      for (size_t j = i + 4; j < extraSize - 3; j++)
+      {
+        if (extraData[j] == 0x00 && extraData[j + 1] == 0x00 && extraData[j + 2] == 0x01)
+        {
+          nextStartCode = j;
+          break;
+        }
+      }
+
+      if (code == 0x0D || code == 0x0F)
+      {
+        seqHeader = extraData + i;
+        seqHeaderSize = nextStartCode - i;
+      }
+      else if (code == 0x0E)
+      {
+        entryPoint = extraData + i;
+        entryPointSize = nextStartCode - i;
+      }
+    }
+  }
+
+  if (!seqHeader || seqHeaderSize == 0)
+  {
+    CLog::Log(LOGERROR, "CBitstreamConverter::BitstreamConvertVC1: No sequence header found");
+    return false;
+  }
+
+  // Check if input frame already contains the headers (first frame case)
+  // First frame structure: [0x0F seq] [0x0E entry] [0x0D frame]
+  bool inputHasHeaders = false;
+  size_t frameStartPos = 0;
+
+  if (iSize > 40) // Need enough space for headers
+  {
+    // Check if it starts with the sequence header (0x0F, malformed)
+    if (pData[0] == 0x00 && pData[1] == 0x00 && pData[2] == 0x01 && pData[3] == 0x0F)
+    {
+      // Look for entry point (0x0E) and then frame data (0x0D)
+      for (int i = 4; i < iSize - 4; i++)
+      {
+        if (pData[i] == 0x00 && pData[i + 1] == 0x00 && pData[i + 2] == 0x01)
+        {
+          if (pData[i + 3] == 0x0E)
+          {
+            // Found entry point, now look for frame start (0x0D)
+            CLog::Log(LOGDEBUG, "VC1: Found entry point at position {}", i);
+            for (int j = i + 8; j < iSize - 4; j++)
+            {
+              if (pData[j] == 0x00 && pData[j + 1] == 0x00 && pData[j + 2] == 0x01 &&
+                  pData[j + 3] == 0x0D)
+              {
+                CLog::Log(LOGDEBUG, "VC1: Found frame data at position {}", j);
+                inputHasHeaders = true;
+                frameStartPos = static_cast<size_t>(j);
+                break;
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Detect keyframe for m_start_decode
+  bool isKeyframe = false;
+  const uint8_t* frameData = nullptr;
+  size_t frameDataSize = 0;
+
+  if (inputHasHeaders)
+  {
+    isKeyframe = true;
+    frameData = pData + frameStartPos + 4; // Skip the 0x0000010D
+    frameDataSize = iSize - frameStartPos - 4;
+
+    CLog::Log(LOGDEBUG, "VC1: First frame - frameStartPos={} frameDataSize={} iSize={}",
+              frameStartPos, frameDataSize, iSize);
+  }
+  else if (iSize >= 5 && pData[0] == 0x00 && pData[1] == 0x00 && pData[2] == 0x01)
+  {
+    uint8_t startCode = pData[3];
+
+    if (startCode == 0x0D)
+    {
+      uint8_t frameByte = pData[4];
+      if ((frameByte & 0xC0) == 0x00 || (frameByte & 0xC0) == 0xC0)
+      {
+        isKeyframe = true;
+      }
+
+      frameData = pData + 4;
+      frameDataSize = iSize - 4;
+    }
+    else if (startCode == 0x0F)
+    {
+      isKeyframe = true;
+      frameData = pData + 4;
+      frameDataSize = iSize - 4;
+    }
+  }
+
+  if (isKeyframe && !m_start_decode)
+  {
+    CLog::Log(LOGDEBUG, "VC1: Detected keyframe, enabling decode");
+    m_start_decode = true;
+  }
+
+  if (!frameData)
+  {
+    CLog::Log(LOGERROR, "CBitstreamConverter::BitstreamConvertVC1: Could not find frame data");
+    return false;
+  }
+
+  // Build output: [seq header] + [entry point] + [frame start 0x0F] + [raw frame data]
+  int totalSize = static_cast<int>(seqHeaderSize + entryPointSize + 4 + frameDataSize);
+
+  CLog::Log(LOGDEBUG, "VC1: Building output - seqSize={} entrySize={} frameSize={} total={}",
+            seqHeaderSize, entryPointSize, frameDataSize, totalSize);
+
+  if (!m_inputBuffer)
+    m_inputBuffer = (uint8_t*)av_malloc(totalSize + AV_INPUT_BUFFER_PADDING_SIZE);
+  else
+    m_inputBuffer = (uint8_t*)av_realloc(m_inputBuffer, totalSize + AV_INPUT_BUFFER_PADDING_SIZE);
+
+  if (!m_inputBuffer)
+  {
+    CLog::Log(LOGERROR, "CBitstreamConverter::BitstreamConvertVC1: Failed to allocate buffer");
+    return false;
+  }
+
+  int offset = 0;
+
+  // 1. Copy sequence header and fix start code (0x0F -> 0x0D)
+  memcpy(m_inputBuffer + offset, seqHeader, seqHeaderSize);
+  if (m_inputBuffer[3] == 0x0F)
+    m_inputBuffer[3] = 0x0D;
+  offset += static_cast<int>(seqHeaderSize);
+
+  // 2. Copy entry point header
+  if (entryPoint && entryPointSize > 0)
+  {
+    memcpy(m_inputBuffer + offset, entryPoint, entryPointSize);
+    offset += static_cast<int>(entryPointSize);
+  }
+
+  // 3. Add frame start code 0x0000010F
+  m_inputBuffer[offset++] = 0x00;
+  m_inputBuffer[offset++] = 0x00;
+  m_inputBuffer[offset++] = 0x01;
+  m_inputBuffer[offset++] = 0x0F;
+
+  // 4. Copy raw frame data (without any start codes)
+  memcpy(m_inputBuffer + offset, frameData, frameDataSize);
+  offset += static_cast<int>(frameDataSize);
+
+  m_inputSize = offset;
+  memset(m_inputBuffer + m_inputSize, 0, AV_INPUT_BUFFER_PADDING_SIZE);
+
+  // Log output
+  int outLogBytes = std::min(m_inputSize, 128);
+  std::string outHex;
+  for (int i = 0; i < outLogBytes; ++i)
+    outHex += StringUtils::Format("{:02X} ", m_inputBuffer[i]);
+  CLog::Log(LOGDEBUG, "VC1: output size={} head={} keyframe={} hadHeaders={}",
+            m_inputSize, outHex, isKeyframe, inputHasHeaders);
+
+  return true;
 }
 
 void CBitstreamConverter::BitstreamAllocAndCopy(uint8_t** poutbuf,

@@ -53,6 +53,8 @@
 #include <player-factory/custompipeline.hpp>
 #include <player-factory/customplayer.hpp>
 #include <starfish-media-pipeline/StarfishMediaAPIs.h>
+#include <gst/gst.h>
+#include <gst/app/gstappsrc.h>
 
 extern "C"
 {
@@ -87,6 +89,8 @@ auto ms_codecMap = std::map<AVCodecID, std::string_view>({{AV_CODEC_ID_VP8, "VP8
                                                           {AV_CODEC_ID_H264, "H264"},
                                                           {AV_CODEC_ID_HEVC, "H265"},
                                                           {AV_CODEC_ID_AV1, "AV1"},
+                                                          {AV_CODEC_ID_VC1, "VC1"},
+                                                          {AV_CODEC_ID_WMV3, "WMV3"},
                                                           {AV_CODEC_ID_AC3, "AC3"},
                                                           {AV_CODEC_ID_EAC3, "AC3 PLUS"},
                                                           {AV_CODEC_ID_AC4, "AC4"},
@@ -854,10 +858,31 @@ void CMediaPipelineWebOS::SetupBitstreamConverter(CDVDStreamInfo& hint)
       allowedHdrFormatsSetting, CSettings::VIDEOPLAYER_ALLOWED_HDR_TYPE_DOLBY_VISION);
 
   if (hint.codec == AV_CODEC_ID_AVS || hint.codec == AV_CODEC_ID_CAVS ||
-      hint.codec == AV_CODEC_ID_H264 || hint.codec == AV_CODEC_ID_HEVC)
+      hint.codec == AV_CODEC_ID_H264 || hint.codec == AV_CODEC_ID_HEVC ||
+      hint.codec == AV_CODEC_ID_VC1 || hint.codec == AV_CODEC_ID_WMV3)
   {
     if (hint.extradata && !hint.cryptoSession)
     {
+      if(hint.codec == AV_CODEC_ID_VC1)
+      {
+        int sz = hint.extradata.GetSize();
+        const uint8_t* ed = hint.extradata.GetData();
+        std::string hex;
+        for (int i = 0; i < sz; ++i)
+          hex += StringUtils::Format("{:02X} ", ed[i]);
+
+        const char* fmt = "UNKNOWN";
+        if (sz == 4 || sz == 5)
+          fmt = "ASF (Main/Simple)";
+        else if (sz == 36 && ed[3] == 0xC5)
+          fmt = "SEQUENCE_LAYER";
+        else
+          fmt = "ASF (Advanced)";
+
+        CLog::Log(LOGDEBUG, "video extradata size={} header-format={} dump: {}",
+                  sz, fmt, hex);
+      }
+
       m_bitstream = std::make_unique<CBitstreamConverter>();
       if (m_bitstream->Open(hint.codec, hint.extradata.GetData(),
                             static_cast<int>(hint.extradata.GetSize()), true))
@@ -1032,7 +1057,7 @@ void CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
   if (packet->dts == DVD_NOPTS_VALUE)
     dts = 0ns;
 
-  if (m_videoHint.ptsinvalid)
+  if (m_videoHint.ptsinvalid || packet->pts == DVD_NOPTS_VALUE)
     pts = dts;
 
   if (pts < 0ns)
@@ -1040,6 +1065,24 @@ void CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
 
   uint8_t* data = packet->pData;
   size_t size = packet->iSize;
+
+  if (m_videoHint.codec == AV_CODEC_ID_VC1 && packet->pData && packet->iSize >= 4)
+  {
+    int dump = std::min(packet->iSize, 128);
+    std::string hex;
+    hex.reserve(dump * 3);
+
+    for (int i = 0; i < dump; ++i)
+    {
+      hex += StringUtils::Format("{:02X} ", packet->pData[i]);
+      if ((i + 1) % 16 == 0) // break lines every 16 bytes for readability
+        hex += "\n";
+    }
+
+    CLog::LogF(LOGDEBUG,
+              "pts={}: video frame before conversion: size={}, first {} bytes: {}",
+               pts.count(), packet->iSize, dump, hex);
+  }
 
   // we have an input buffer, fill it.
   if (data && m_bitstream)
@@ -1396,6 +1439,184 @@ void CMediaPipelineWebOS::GetVideoResolution(unsigned int& width, unsigned int& 
   }
 }
 
+void CMediaPipelineWebOS::UpdateAppSrcVC1Caps()
+{
+  if (m_videoHint.codec != AV_CODEC_ID_VC1 && m_videoHint.codec != AV_CODEC_ID_WMV3)
+    return;
+
+  if (!m_videoHint.extradata || m_videoHint.extradata.GetSize() == 0)
+  {
+    CLog::LogF(LOGWARNING, "No extradata for VC-1/WMV3");
+    return;
+  }
+
+  CLog::Log(LOGDEBUG, "SetupVC1Caps!");
+
+  if (!m_pipeline)
+  {
+    CLog::LogF(LOGERROR, "Pipeline available");
+    return;
+  }
+
+  if (!m_pipeline->videoSrc)
+  {
+    CLog::LogF(LOGERROR, "videoSrc not available");
+    return;
+  }
+
+  GstAppSrc* appsrc = GST_APP_SRC(m_pipeline->videoSrc);
+
+  if (!appsrc) {
+    CLog::Log(LOGERROR, "appsrc: GST_APP_SRC cast returned null");
+  }
+
+  if (GST_IS_APP_SRC(m_pipeline->videoSrc)) {
+    CLog::Log(LOGDEBUG, "videoSrc is a valid GstAppSrc element");
+
+    const gchar* name = gst_element_get_name(GST_ELEMENT(appsrc));
+    CLog::Log(LOGDEBUG, "Appsrc element name: {}", name);
+
+    const gchar* factory = GST_OBJECT_NAME(GST_OBJECT(appsrc));
+    CLog::Log(LOGDEBUG, "Factory type: {}", factory);
+
+    GstAppStreamType type = gst_app_src_get_stream_type(appsrc);
+    CLog::Log(LOGDEBUG, "Appsrc stream type enum = {}", type);
+
+  } else {
+    CLog::Log(LOGERROR, "videoSrc is NOT an appsrc!");
+  }
+
+  GstElement* videoParse = gst_bin_get_by_name(GST_BIN(m_pipeline->pipeline), "vc1-parse");
+  if (videoParse) {
+    CLog::Log(LOGDEBUG, "Found vc1-parse element");
+  } else {
+    CLog::Log(LOGERROR, "vc1-parse element not found in pipeline");
+  }
+
+  GstCaps* caps = gst_app_src_get_caps(appsrc);
+
+  if (!caps)
+  {
+    CLog::LogF(LOGERROR, "Could not get caps from appsrc");
+    //return;
+  }
+
+  if (caps)
+  {
+    gchar* caps_str = gst_caps_to_string(caps);
+    CLog::Log(LOGDEBUG, "SetupVC1Caps: retrieved caps = {}", caps_str);
+    g_free(caps_str);
+    caps = gst_caps_make_writable(caps);
+  }
+
+  // Create GstBuffer with codec_data
+  GstBuffer* codecDataBuffer = gst_buffer_new_allocate(
+      nullptr, m_videoHint.extradata.GetSize(), nullptr);
+
+  if (!codecDataBuffer)
+  {
+    CLog::LogF(LOGERROR, "Failed to allocate GstBuffer for codec_data");
+    gst_caps_unref(caps);
+    return;
+  }
+
+  gst_buffer_fill(codecDataBuffer, 0,
+    m_videoHint.extradata.GetData(),
+    m_videoHint.extradata.GetSize());
+
+  // Determine format based on codec
+  const char* format = (m_videoHint.codec == AV_CODEC_ID_WMV3) ? "WMV3" : "WVC1";
+
+  if (!caps)
+  {
+    caps = gst_caps_new_simple("video/x-wmv",
+      "wmvversion", G_TYPE_INT, 3,
+      "stream-format", G_TYPE_STRING, "asf",
+      "format", G_TYPE_STRING, format,
+      "codec_data", GST_TYPE_BUFFER, codecDataBuffer,
+      NULL);
+  }
+  else
+  {
+    CLog::Log(LOGDEBUG, "Creating caps for appsrc");
+    gst_caps_set_simple(caps,
+                        "format", G_TYPE_STRING, format,
+                        "stream-format", G_TYPE_STRING, "asf",
+                        "codec_data", GST_TYPE_BUFFER, codecDataBuffer,
+                        nullptr);
+  }
+
+  if (videoParse) {
+    GstPad* videoParseSrcPad = gst_element_get_static_pad(videoParse, "src");
+    GstCaps* videoParseCaps = gst_pad_get_current_caps(videoParseSrcPad);
+    if (!videoParseCaps) {
+      CLog::Log(LOGDEBUG, "vc1-parse gst_pad_query_caps");
+      videoParseCaps = gst_pad_query_caps(videoParseSrcPad, NULL);
+    }
+    if (videoParseCaps) {
+      const GstStructure* s = gst_caps_get_structure(videoParseCaps, 0);
+
+      const gchar* stream_format = gst_structure_get_string(s, "stream-format");
+      if (stream_format) {
+          CLog::Log(LOGDEBUG, "vc1-parse stream-format = {}", stream_format);
+      }
+
+      const GValue* codec_data_val = gst_structure_get_value(s, "codec_data");
+      if (codec_data_val && GST_VALUE_HOLDS_BUFFER(codec_data_val)) {
+          GstBuffer* buf = gst_value_get_buffer(codec_data_val);
+          CLog::Log(LOGDEBUG, "vc1-parse received codec_data buffer of size {}", gst_buffer_get_size(buf));
+      } else {
+          CLog::Log(LOGDEBUG, "vc1-parse caps have no codec_data");
+      }
+
+      gchar* caps_str = gst_caps_to_string(videoParseCaps);
+      CLog::Log(LOGDEBUG, "vc1-parse full caps: {}", caps_str);
+      g_free(caps_str);
+
+      gst_caps_unref(videoParseCaps);
+    }
+    gst_object_unref(videoParseSrcPad);
+
+    // Inspect negotiated caps
+    GstPad* srcpad = gst_element_get_static_pad(videoParse, "src");
+    GstCaps* capsAfter = gst_pad_get_current_caps(srcpad);
+    if (capsAfter) {
+        gchar* str = gst_caps_to_string(capsAfter);
+        CLog::Log(LOGDEBUG, "vc1-parse negotiated caps: {}", str);
+        g_free(str);
+        gst_caps_unref(capsAfter);
+    }
+    gst_object_unref(srcpad);
+
+    g_object_set(videoParse,
+      "stream-format", "asf",
+      "codec_data", GST_TYPE_BUFFER, codecDataBuffer,
+      NULL);
+  }
+
+  CLog::LogF(LOGINFO, "Added codec_data ({} bytes), stream-format=asf, format={} to VC-1 video caps",
+    m_videoHint.extradata.GetSize(), format);
+
+  gst_buffer_unref(codecDataBuffer);
+
+  if(caps)
+  {
+    // Set the modified caps back
+    gst_app_src_set_caps(appsrc, caps);
+
+    gst_caps_unref(caps);
+  }
+
+  GstCaps* applied = gst_app_src_get_caps(appsrc);
+  if (applied)
+  {
+    gchar* str = gst_caps_to_string(applied);
+    CLog::Log(LOGDEBUG, "Appsrc caps now: {}", str);
+    g_free(str);
+    gst_caps_unref(applied);
+  }
+}
+
 void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, const char* strValue)
 {
   const std::string logStr = strValue != nullptr ? strValue : "";
@@ -1439,6 +1660,8 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
           static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
       m_pipeline = pipeline->GetGStreamerElements(
           {0, MIN_SRC_BUFFER_LEVEL_VIDEO, MAX_SRC_BUFFER_LEVEL_VIDEO, MAX_BUFFER_LEVEL});
+
+      UpdateAppSrcVC1Caps();
 
       if (acb)
       {
