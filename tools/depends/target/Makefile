@@ -157,6 +157,8 @@ ffmpeg: $(ICONV) $(ZLIB) bzip2 gnutls dav1d $(LIBVA)
 fontconfig: freetype2 expat $(ICONV) $(LIBUUID)
 freetype2: bzip2 harfbuzz $(ZLIB)
 gettext: $(ICONV)
+glib: gettext
+gstreamer: glib
 gnutls: nettle $(ZLIB)
 harfbuzz: freetype2-noharfbuzz $(ICONV)
 libaacs: libgcrypt libgpg-error

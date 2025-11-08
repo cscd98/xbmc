@@ -262,6 +262,8 @@ set(optional_deps Alsa>=1.0.27
                   CAP
                   CEC>=4.0.0
                   DBus
+                  GLib
+                  GStreamer
                   Iso9660pp>=2.1.0
                   LCMS2>=2.10
                   LircClient
