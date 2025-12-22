@@ -804,11 +804,34 @@ std::string CMediaPipelineWebOS::SetupAudio(CDVDStreamInfo& audioHint, CVariant&
       optInfo["ac3PlusInfo"]["channels"] = hint.channels + 2;
   };
 
+  auto setPCMInfo = [&](const CDVDStreamInfo& hint, CVariant& optInfo)
+  {
+    optInfo["pcmInfo"]["bitsPerSample"] = audioHint.bitspersample;
+    optInfo["pcmInfo"]["sampleRate"] = audioHint.samplerate / 1000.0;
+    optInfo["pcmInfo"]["channelMode"] = (audioHint.channels == 1) ? "mono" :
+                                        (audioHint.channels == 2) ? "stereo" :
+                                        (audioHint.channels == 6) ? "5.1" :
+                                        (audioHint.channels == 8) ? "7.1" : "N-channel";
+    optInfo["pcmInfo"]["format"] = (audioHint.bitspersample == 16) ? "S16LE" :
+                                   (audioHint.bitspersample == 24) ? "S24LE" :
+                                   (audioHint.bitspersample == 32) ? "S32LE" : "F32LE";
+    AEDataFormat fmt = m_audioCodec ? m_audioCodec->GetFormat().m_dataFormat : AE_FMT_INVALID;
+    optInfo["pcmInfo"]["layout"] = AE_IS_PLANAR(fmt) ? "non-interleaved" : "interleaved";
+  };
+
   std::string codecName = "AC3";
   const bool allowPassthrough = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                                     CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH) ||
                                 audioHint.cryptoSession;
   const bool supported = Supports(audioHint.codec, audioHint.profile);
+
+  if(decodePCM)
+  {
+    m_audioEncoder = nullptr;
+    codecName = "PCM";
+    setPCMInfo(audioHint, optInfo);
+    return codecName;
+  }
 
   if (!supported && audioHint.cryptoSession)
   {
