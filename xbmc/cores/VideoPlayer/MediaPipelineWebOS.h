@@ -255,6 +255,9 @@ public:
    */
   void GetVideoResolution(unsigned int& width, unsigned int& height) const;
 
+  int GetMessageQueueVideoSize() const { return m_messageQueueVideo.GetDataSize(); }
+  int GetMessageQueueAudioSize() const { return m_messageQueueAudio.GetDataSize(); }
+
 protected:
   /**
    * @brief Video processing thread loop.
@@ -388,6 +391,13 @@ private:
    * @return Current queue level as a percentage
    */
   unsigned int GetQueueLevel(StreamType type) const;
+
+  /**
+   * @brief Use the legacy (webOS 3 feed)
+   * @param api starfish media api
+   * @param payload json to feed
+   */
+  static std::unique_ptr<char[]> FeedLegacy(StarfishMediaAPIs* api, const char* payload);
 
   std::condition_variable m_eventCondition;
   std::mutex m_eventMutex;

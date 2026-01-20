@@ -8,6 +8,8 @@
 
 #include "VideoPlayerAudioWebOS.h"
 
+#include "platform/linux/WebOSTVPlatformConfig.h"
+
 CVideoPlayerAudioWebOS::CVideoPlayerAudioWebOS(CMediaPipelineWebOS& mediaPipeline,
                                                CProcessInfo& processInfo)
   : IDVDStreamPlayerAudio(processInfo), m_mediaPipeline(mediaPipeline)
@@ -46,6 +48,9 @@ bool CVideoPlayerAudioWebOS::AcceptsData() const
 
 bool CVideoPlayerAudioWebOS::HasData() const
 {
+  if (WebOSTVPlatformConfig::GetWebOSVersion() < 4)
+    return m_mediaPipeline.GetMessageQueueAudioSize() > 0;
+
   return m_mediaPipeline.HasAudioData();
 }
 

@@ -22,7 +22,10 @@
 #include <filesystem>
 #include <memory>
 
+#include <dlfcn.h>
 #include <sys/resource.h>
+
+constexpr const char* basePath = "/media/developer/temp/webosbrew/";
 
 CPlatform* CPlatform::CreateInstance()
 {
@@ -35,13 +38,68 @@ std::string CPlatformWebOS::GetHomePath()
   std::error_code ec;
   std::filesystem::path path = std::filesystem::read_symlink(self, ec);
 
-  if (ec)
+  // If symlink read failed OR the resolved path is not writable
+  if (ec || access(path.parent_path().c_str(), W_OK) != 0)
   {
     const char* homeEnv = getenv("HOME");
-    return homeEnv ? std::string(homeEnv) : std::string("");
+    if (homeEnv && *homeEnv)
+    {
+      std::string homeStr(homeEnv);
+
+      if (access(homeStr.c_str(), W_OK) != 0)
+      {
+        std::string fallback = std::string(basePath) + std::string(CCompileInfo::GetPackage());
+        std::error_code dir_ec;
+        if (std::filesystem::create_directories(fallback, dir_ec) && !dir_ec)
+          return fallback;
+      }
+
+      return homeStr;
+    }
+
+    return std::string("");
   }
 
   return path.parent_path().string();
+}
+
+void RelocateWaylandClientIfNeeded(const std::string& homePath)
+{
+  if (WebOSTVPlatformConfig::GetWebOSVersion() <= 3)
+  {
+    std::filesystem::path libDir = homePath + "/staged-lib";
+    std::filesystem::path preloadDir = homePath + "/preload-lib";
+
+    std::error_code ec;
+    std::filesystem::create_directories(preloadDir, ec);
+
+    for (const auto& entry : std::filesystem::directory_iterator(libDir))
+    {
+      auto fname = entry.path().filename().string();
+      if (fname.find("libwayland-client.so") == 0)
+      {
+        auto dest = preloadDir / fname;
+        try
+        {
+          // Try to move first
+          std::filesystem::rename(entry.path(), dest, ec);
+          if (ec)
+          {
+            ec.clear();
+            // If rename fails (e.g. cross‑filesystem), copy instead
+            std::filesystem::copy_file(entry.path(), dest,
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec)
+              CLog::Log(LOGERROR, "Failed to copy %s: %s", fname.c_str(), ec.message().c_str());
+          }
+        }
+        catch (const std::exception& ex)
+        {
+          CLog::Log(LOGERROR, "Exception while relocating %s: %s", fname.c_str(), ex.what());
+        }
+      }
+    }
+  }
 }
 
 bool CPlatformWebOS::InitStageOne()
@@ -53,7 +111,6 @@ bool CPlatformWebOS::InitStageOne()
   setenv("APPID", CCompileInfo::GetPackage(), 0);
   setenv("FONTCONFIG_FILE", "/etc/fonts/fonts.conf", 1);
   setenv("FONTCONFIG_PATH", "/etc/fonts", 1);
-  setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/lib/gst-plugin-scanner").c_str(), 1);
   setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 1);
   setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
   setenv("WAYLAND_DISPLAY", "wayland-0", 1);
@@ -68,6 +125,11 @@ bool CPlatformWebOS::InitStageOne()
   setenv("KODI_HOME", HOME.c_str(), 1);
   setenv("SSL_CERT_FILE",
          CSpecialProtocol::TranslatePath("special://xbmc/system/certs/cacert.pem").c_str(), 1);
+
+  if (WebOSTVPlatformConfig::GetWebOSVersion() >= 4)
+    setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/lib/gst-plugin-scanner").c_str(), 1);
+
+  RelocateWaylandClientIfNeeded(HOME);
 
   return CPlatformLinux::InitStageOne();
 }
