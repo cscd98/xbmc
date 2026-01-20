@@ -58,6 +58,7 @@ set(HEADERS AudioSinkAE.h
 
 if("webos" IN_LIST CORE_PLATFORM_NAME_LC)
     list(APPEND SOURCES MediaPipelineWebOS.cpp
+                        MediaPipelineWebOSLegacy.cpp
                         VideoPlayerAudioWebOS.cpp
                         VideoPlayerVideoWebOS.cpp
                         VideoPlayerWebOS.cpp)
@@ -65,6 +66,12 @@ if("webos" IN_LIST CORE_PLATFORM_NAME_LC)
                         VideoPlayerAudioWebOS.h
                         VideoPlayerVideoWebOS.h
                         VideoPlayerWebOS.h)
+
+    #set_source_files_properties(
+    #    MediaPipelineWebOSLegacy.cpp
+    #    PROPERTIES
+    #    COMPILE_FLAGS "-D_GLIBCXX_USE_CXX11_ABI=0"
+    #)
 endif()
 
 core_add_library(VideoPlayer)

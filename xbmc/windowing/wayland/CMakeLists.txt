@@ -69,12 +69,14 @@ if(TARGET_WEBOS)
                               ${WAYLAND_EXTRA_PROTOCOL_GENERATED_DIR}/wayland-webos-protocols.hpp
                               PROPERTIES GENERATED TRUE)
 
-  list(APPEND SOURCES OSScreenSaverWebOS.cpp
+  list(APPEND SOURCES WinSystemWaylandBackport.cpp
+                      OSScreenSaverWebOS.cpp
                       SeatWebOS.cpp
                       ShellSurfaceWebOSShell.cpp
                       WinSystemWaylandWebOS.cpp
                       ${WAYLAND_EXTRA_PROTOCOL_GENERATED_DIR}/wayland-webos-protocols.cpp)
-  list(APPEND HEADERS OSScreenSaverWebOS.h
+  list(APPEND HEADERS WinSystemWaylandBackport.h
+                      OSScreenSaverWebOS.h
                       SeatWebOS.h
                       ShellSurfaceWebOSShell.h
                       WinSystemWaylandWebOS.h
@@ -82,6 +84,12 @@ if(TARGET_WEBOS)
 endif()
 
 core_add_library(windowing_WAYLAND)
+
+if(TARGET_WEBOS)
+  target_compile_options(windowing_WAYLAND
+      PRIVATE -include ${CMAKE_SOURCE_DIR}/xbmc/windowing/wayland/WinSystemWaylandBackport.h
+  )
+endif()
 
 if(PC_WAYLAND_PROTOCOLS_VERSION VERSION_GREATER_EQUAL 1.41)
   target_compile_definitions(windowing_WAYLAND PRIVATE HAS_WAYLAND_COLOR_MANAGEMENT)

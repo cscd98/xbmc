@@ -35,10 +35,33 @@ std::string CPlatformWebOS::GetHomePath()
   std::error_code ec;
   std::filesystem::path path = std::filesystem::read_symlink(self, ec);
 
-  if (ec)
+  // If symlink read failed OR the resolved path is not writable
+  if (ec || access(path.parent_path().c_str(), W_OK) != 0)
   {
     const char* homeEnv = getenv("HOME");
-    return homeEnv ? std::string(homeEnv) : std::string("");
+    if (homeEnv && *homeEnv)
+    {
+      std::string homeStr(homeEnv);
+
+      // If HOME is not writable, try fallback
+      if (access(homeStr.c_str(), W_OK) != 0)
+      {
+        std::string fallback = std::string("/media/developer/temp/webosbrew/") + CCompileInfo::GetPackage();
+
+        printf("Using fallback HOME path: %s\n", fallback.c_str());
+        fflush(stdout);
+
+        std::error_code dir_ec;
+        if (std::filesystem::create_directories(fallback, dir_ec) && !dir_ec)
+        {
+          return fallback;
+        }
+      }
+
+      return homeStr;
+    }
+
+    return std::string("");
   }
 
   return path.parent_path().string();
@@ -53,7 +76,6 @@ bool CPlatformWebOS::InitStageOne()
   setenv("APPID", CCompileInfo::GetPackage(), 0);
   setenv("FONTCONFIG_FILE", "/etc/fonts/fonts.conf", 1);
   setenv("FONTCONFIG_PATH", "/etc/fonts", 1);
-  setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/lib/gst-plugin-scanner").c_str(), 1);
   setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 1);
   setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
   setenv("WAYLAND_DISPLAY", "wayland-0", 1);
@@ -69,14 +91,17 @@ bool CPlatformWebOS::InitStageOne()
   setenv("SSL_CERT_FILE",
          CSpecialProtocol::TranslatePath("special://xbmc/system/certs/cacert.pem").c_str(), 1);
 
+  if  (WebOSTVPlatformConfig::GetWebOSVersion() >= 4)
+    setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/lib/gst-plugin-scanner").c_str(), 1);
+
   return CPlatformLinux::InitStageOne();
 }
 
 bool CPlatformWebOS::InitStageTwo()
 {
-  constexpr rlimit limit{0, 0};
-  if (setrlimit(RLIMIT_CORE, &limit) != 0)
-    CLog::Log(LOGERROR, "Failed to disable core dumps");
+  //constexpr rlimit limit{0, 0};
+  //if (setrlimit(RLIMIT_CORE, &limit) != 0)
+  //  CLog::Log(LOGERROR, "Failed to disable core dumps");
 
   WebOSTVPlatformConfig::Load();
   WebOSTVPlatformConfig::LoadARCStatus();

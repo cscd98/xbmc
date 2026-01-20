@@ -7,6 +7,8 @@
  */
 
 #include "VideoPlayerAudioWebOS.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 
 CVideoPlayerAudioWebOS::CVideoPlayerAudioWebOS(CMediaPipelineWebOS& mediaPipeline,
                                                CProcessInfo& processInfo)
@@ -46,6 +48,10 @@ bool CVideoPlayerAudioWebOS::AcceptsData() const
 
 bool CVideoPlayerAudioWebOS::HasData() const
 {
+  if (!CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+      CSettings::SETTING_VIDEOPLAYER_USEGSTREAMERELEMENTS))
+        return m_mediaPipeline.GetMessageQueueAudioSize() > 0;
+
   return m_mediaPipeline.HasAudioData();
 }
 
