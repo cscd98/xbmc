@@ -255,6 +255,9 @@ public:
    */
   void GetVideoResolution(unsigned int& width, unsigned int& height) const;
 
+  int GetMessageQueueVideoSize() const { return m_messageQueueVideo.GetDataSize(); }
+  int GetMessageQueueAudioSize() const { return m_messageQueueAudio.GetDataSize(); }
+
 protected:
   /**
    * @brief Video processing thread loop.
@@ -389,6 +392,9 @@ private:
    */
   unsigned int GetQueueLevel(StreamType type) const;
 
+  static std::unique_ptr<char[]> FeedLegacy(StarfishMediaAPIs* api, const char* payload);
+  //bool getLegacyMaxVideoResolution(const char* codec, int32_t* maxWidth, int32_t* maxHeight, int32_t* maxFramerate);
+
   std::condition_variable m_eventCondition;
   std::mutex m_eventMutex;
 
@@ -434,4 +440,6 @@ private:
   BitstreamStats m_videoStats{};
 
   std::thread m_audioThread;
+
+  bool m_useLegacy{false};
 };

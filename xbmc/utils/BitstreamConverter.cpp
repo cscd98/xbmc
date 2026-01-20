@@ -366,6 +366,8 @@ bool CBitstreamConverter::Open(enum AVCodecID codec,
           m_extraData = FFmpegExtraData(in_extradata, in_extrasize);
           m_convert_bitstream =
               BitstreamConvertInitAVC(m_extraData.GetData(), m_extraData.GetSize());
+
+          CLog::LogF(LOGDEBUG, "Bitstream to AnnexB conversion initialized");
           return true;
         }
         else
@@ -448,6 +450,8 @@ bool CBitstreamConverter::Open(enum AVCodecID codec,
           m_extraData = FFmpegExtraData(in_extradata, in_extrasize);
           m_convert_bitstream =
               BitstreamConvertInitHEVC(m_extraData.GetData(), m_extraData.GetSize());
+
+          CLog::LogF(LOGDEBUG, "Bitstream to AnnexB conversion initialized");
           return true;
         }
         else

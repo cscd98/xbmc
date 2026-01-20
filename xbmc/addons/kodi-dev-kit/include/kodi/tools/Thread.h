@@ -204,8 +204,8 @@ public:
       m_thread = new std::thread(
           [](CThread* thread, std::promise<bool> promise)
           {
-            try
-            {
+            //try
+            //{
               {
                 // Wait for the pThread->m_thread internals to be set. Otherwise we could
                 // get to a place where we're reading, say, the thread id inside this
@@ -238,17 +238,17 @@ public:
               else
                 kodi::Log(ADDON_LOG_DEBUG, "Thread %s terminating", id.c_str());
             }
-            catch (const std::exception& e)
-            {
-              kodi::Log(ADDON_LOG_DEBUG, "Thread Terminating with Exception: %s", e.what());
-            }
-            catch (...)
-            {
-              kodi::Log(ADDON_LOG_DEBUG, "Thread Terminating with Exception");
-            }
+            //catch (const std::exception& e)
+            //{
+            //  kodi::Log(ADDON_LOG_DEBUG, "Thread Terminating with Exception: %s", e.what());
+           // }
+           // catch (...)
+            //{
+            //  kodi::Log(ADDON_LOG_DEBUG, "Thread Terminating with Exception");
+           // }
 
             promise.set_value(true);
-          },
+          //},
           this, std::move(prom));
 
       m_startEvent.wait(lock);

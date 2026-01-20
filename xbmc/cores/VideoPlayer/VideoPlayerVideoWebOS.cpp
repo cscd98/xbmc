@@ -8,6 +8,10 @@
 
 #include "VideoPlayerVideoWebOS.h"
 
+#include "platform/linux/WebOSTVPlatformConfig.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+
 CVideoPlayerVideoWebOS::CVideoPlayerVideoWebOS(CMediaPipelineWebOS& mediaPipeline,
                                                CProcessInfo& processInfo)
   : IDVDStreamPlayerVideo(processInfo), m_mediaPipeline(mediaPipeline)
@@ -41,6 +45,11 @@ bool CVideoPlayerVideoWebOS::AcceptsData() const
 
 bool CVideoPlayerVideoWebOS::HasData() const
 {
+  //if (WebOSTVPlatformConfig::GetWebOSVersion() < 4)
+  if (!CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+      CSettings::SETTING_VIDEOPLAYER_USEGSTREAMERELEMENTS))
+        return m_mediaPipeline.GetMessageQueueVideoSize() > 0;
+
   return m_mediaPipeline.HasVideoData();
 }
 

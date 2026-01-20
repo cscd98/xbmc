@@ -8,6 +8,8 @@
 
 #include "VideoBufferStarfish.h"
 
+#include "utils/log.h"
+
 #include <appswitching-control-block/AcbAPI.h>
 
 AcbHandle::AcbHandle() : m_handle(AcbAPI_create())
@@ -33,6 +35,7 @@ void AcbHandle::Reset() noexcept
 {
   if (m_handle)
   {
+    CLog::LogF(LOGDEBUG, "Finalizing and destroying AcbHandle with id {}", m_handle);
     AcbAPI_finalize(m_handle);
     AcbAPI_destroy(m_handle);
     m_handle = 0;
@@ -51,6 +54,7 @@ AVPixelFormat CStarfishVideoBuffer::GetFormat()
 
 std::unique_ptr<AcbHandle>& CStarfishVideoBuffer::GetAcbHandle() noexcept
 {
+  CLog::LogF(LOGDEBUG, "Getting AcbHandle");
   return m_acbHandle;
 }
 

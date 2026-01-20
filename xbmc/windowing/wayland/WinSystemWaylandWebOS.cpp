@@ -162,6 +162,7 @@ std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> CWinSystemWaylandWebOS::GetOSSc
 
 std::unique_ptr<CSeat> CWinSystemWaylandWebOS::CreateSeat(std::uint32_t name, wayland::seat_t& seat)
 {
+  CLog::LogF(LOGDEBUG, "CreateSeat {}", name);
   return std::make_unique<CSeatWebOS>(name, seat, *GetConnection());
 }
 

@@ -1,0 +1,114 @@
+name: CI webOS Kodi
+
+on:
+  push:
+    tags-ignore:
+      - '*'
+    branches:
+      - '*'
+  pull_request:
+  release:
+    types: [ published ]
+  repository_dispatch:
+    types: [ run_build ]
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Out Repo
+        uses: actions/checkout@v4
+
+      - name: Download ares-cli-rs
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: "webosbrew/ares-cli-rs"
+          latest: true
+          fileName: "ares-package_*.deb"
+          out-file-path: "temp"
+
+      - name: Update packages
+        run: sudo apt-get -yq update
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get -yq install \
+            pkg-config \
+            cmake \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            zlib1g-dev \
+            binutils
+
+      - name: Install webOS CLI
+        run: sudo apt-get -yq install ./temp/*.deb
+
+      - name: Download webOS NDK
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: "openlgtv/buildroot-nc4"
+          latest: true
+          fileName: "arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz"
+          out-file-path: "/tmp"
+
+      - name: Extract webOS NDK
+        shell: bash
+        working-directory: /tmp
+        run: |
+          tar xzf arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+          ./arm-webos-linux-gnueabi_sdk-buildroot/relocate-sdk.sh
+
+      - name: Cache Kodi depends
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/depends/*
+            $HOME/kodi-build-webos/xbmc-deps
+          key: kodi-depends-${{ runner.os }}
+
+      - name: Relocate cached depends
+        run: |
+          mkdir -p $HOME/kodi-build-webos
+          if [ -d "$GITHUB_WORKSPACE/kodi-build-webos/xbmc-deps" ]; then
+            rsync -a $GITHUB_WORKSPACE/kodi-build-webos/xbmc-deps $HOME/kodi-build-webos/
+          fi
+
+      - name: Verify cmake in cache
+        run: ls -l $HOME/kodi-build-webos/xbmc-deps/x86_64-linux-gnu-native/bin/cmake || echo "cmake missing"
+
+      - name: Build Kodi Dependencies
+        shell: bash
+        run: |
+          if [ -x "tools/depends/native/x86_64-linux-gnu-native/bin/cmake" ]; then
+            echo "Using cached depends"
+          else
+            cd tools/depends
+            ./bootstrap
+            ./configure \
+              --prefix=$HOME/kodi-build-webos/xbmc-deps \
+              --host=arm-webos-linux-gnueabi \
+              --with-toolchain=/tmp/arm-webos-linux-gnueabi_sdk-buildroot \
+              --enable-debug=yes \
+              --with-platform=webos
+            make -j"$(getconf _NPROCESSORS_ONLN)"
+          fi
+
+      - name: Build Kodi
+        shell: bash
+        run: |
+          make -C tools/depends/target/cmakebuildsys BUILD_DIR=$HOME/kodi-build-webos
+          cd $HOME/kodi-build-webos
+          make -j"$(getconf _NPROCESSORS_ONLN)"
+          make ipk
+          pwd
+          ls -l $HOME/kodi-build-webos
+
+      - name: Upload Kodi artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: org.xbmc.kodi_21.90.702_arm.ipk
+          path: /home/runner/kodi-build-webos/org.xbmc.kodi_21.90.702_arm.ipk

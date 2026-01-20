@@ -156,7 +156,10 @@ bool CWinSystemWayland::InitWindowSystem()
   CLog::LogF(LOGINFO, "Connecting to Wayland server");
   m_connection = std::make_unique<CConnection>();
   if (!m_connection->HasDisplay())
+  {
+    CLog::Log(LOGERROR, "wayland-client HAS NO DISPLAY!");
     return false;
+  }
 
   VIDEOPLAYER::CProcessInfoWayland::Register();
   RETRO::CRPProcessInfoWayland::Register();
@@ -168,7 +171,11 @@ bool CWinSystemWayland::InitWindowSystem()
   m_registry->RequestSingleton(m_presentation, 1, 1, false);
   // version 2 adds done() -> required
   // version 3 adds destructor -> optional
-  m_registry->Request<wayland::output_t>(2, 3, std::bind(&CWinSystemWayland::OnOutputAdded, this, _1, _2), std::bind(&CWinSystemWayland::OnOutputRemoved, this, _1));
+  std::uint32_t minVersion = 2;
+#ifdef TARGET_WEBOS
+  minVersion = 1; // webOS 1.x-3.x only supports version 1
+#endif
+  m_registry->Request<wayland::output_t>(minVersion, 3, std::bind(&CWinSystemWayland::OnOutputAdded, this, _1, _2), std::bind(&CWinSystemWayland::OnOutputRemoved, this, _1));
 
   m_registry->Bind();
 
@@ -1140,15 +1147,22 @@ void CWinSystemWayland::Unregister(IDispResource* resource)
 
 void CWinSystemWayland::OnSeatAdded(std::uint32_t name, wayland::proxy_t&& proxy)
 {
+  CLog::Log(LOGDEBUG, "WinSystemWayland: OnSeatAdded called for seat global name {}", name);
   std::unique_lock lock(m_seatsMutex);
 
   wayland::seat_t seat(proxy);
+  CLog::Log(LOGDEBUG, "WinSystemWayland: Created seat_t wrapper, valid={}", !!seat);
+  
+  CLog::Log(LOGDEBUG, "WinSystemWayland: Creating CSeat instance");
   auto newSeatEmplace = m_seats.emplace(std::piecewise_construct, std::forward_as_tuple(name),
                                         std::forward_as_tuple(CreateSeat(name, seat)));
 
   auto& seatInst = newSeatEmplace.first->second;
+  CLog::Log(LOGDEBUG, "WinSystemWayland: CSeat created, adding to input processing");
   m_seatInputProcessing->AddSeat(seatInst.get());
+  CLog::Log(LOGDEBUG, "WinSystemWayland: Adding seat to window decorator");
   m_windowDecorator->AddSeat(seatInst.get());
+  CLog::Log(LOGDEBUG, "WinSystemWayland: OnSeatAdded complete for seat {}", name);
 }
 
 std::unique_ptr<CSeat> CWinSystemWayland::CreateSeat(std::uint32_t name, wayland::seat_t& seat)

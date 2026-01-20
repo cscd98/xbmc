@@ -16,10 +16,7 @@ namespace KODI::WINDOWING::WAYLAND
 class CSeatWebOS final : public CSeat
 {
 public:
-  CSeatWebOS(std::uint32_t globalName, wayland::seat_t const& seat, CConnection& connection)
-    : CSeat(globalName, seat, connection)
-  {
-  }
+  CSeatWebOS(std::uint32_t globalName, wayland::seat_t const& seat, CConnection& connection);
 
   void SetCursor(std::uint32_t serial,
                  wayland::surface_t const& surface,

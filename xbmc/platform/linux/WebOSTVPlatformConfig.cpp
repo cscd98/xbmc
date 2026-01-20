@@ -12,6 +12,7 @@
 #include "utils/JSONVariantWriter.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
+#include "utils/SystemInfo.h"
 
 namespace
 {
@@ -69,7 +70,33 @@ void WebOSTVPlatformConfig::Load()
 
 int WebOSTVPlatformConfig::GetWebOSVersion()
 {
-  return ms_config[PLATFORM_CODE].asInteger();
+  CLog::LogF(LOGDEBUG, "Getting webOS version");
+
+  int cfg_version = ms_config[PLATFORM_CODE].asInteger();
+  if (cfg_version > 0)
+  {
+    CLog::LogF(LOGDEBUG, "Detected webOS version from ms_config: {}", cfg_version);
+    return cfg_version;
+  }
+
+  // e.g: "webOSRockhopper release 2.2.3-2155"
+  std::string pretty = g_sysinfo.GetOsPrettyNameWithVersion();
+
+  CLog::LogF(LOGDEBUG, "OS Pretty Name: {}", pretty);
+
+  // Find the first digit substring
+  std::size_t pos = pretty.find_first_of("0123456789");
+  if (pos == std::string::npos)
+  {
+    CLog::LogF(LOGERROR, "Failed to detect webOS version from '{}'", pretty);
+    return 0;
+  }
+
+  char* endptr = nullptr;
+  long maj = std::strtol(pretty.c_str() + pos, &endptr, 10);
+
+  CLog::LogF(LOGDEBUG, "Detected webOS version: {}", maj);
+  return static_cast<int>(maj);
 }
 
 bool WebOSTVPlatformConfig::SupportsDTS()

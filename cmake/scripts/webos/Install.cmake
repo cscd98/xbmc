@@ -9,7 +9,8 @@ set(APP_PACKAGE_DIR ${CMAKE_BINARY_DIR}/tools/webOS/packaging)
 configure_file(${CMAKE_SOURCE_DIR}/tools/webOS/packaging/appinfo.json.in ${APP_PACKAGE_DIR}/appinfo.json @ONLY)
 configure_file(${CMAKE_SOURCE_DIR}/tools/webOS/packaging/icon.png ${APP_PACKAGE_DIR}/icon.png COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/tools/webOS/packaging/largeIcon.png ${APP_PACKAGE_DIR}/largeIcon.png COPYONLY)
-
+configure_file(${CMAKE_SOURCE_DIR}/tools/webOS/packaging/kodi.sh ${APP_PACKAGE_DIR}/kodi.sh COPYONLY)
+configure_file(${CMAKE_SOURCE_DIR}/tools/webOS/packaging/strace ${APP_PACKAGE_DIR}/strace COPYONLY)
 
 # Webos-userland are stubs for libs on the target device not contained in the toolchain,
 # we don't package them, but still add them to the search path for verify
@@ -23,6 +24,11 @@ set(WEBOS_ROOTFS ${TOOLCHAIN}/${HOST}/sysroot)
 set(WEBOS_LD_LIBRARY_PATH ${WEBOS_USERLAND_LIBS}:${APP_PACKAGE_DIR}/lib)
 set(VERIFY_EXE ${CMAKE_SOURCE_DIR}/tools/webOS/verify-symbols.sh)
 
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  set(_build_suffix "release")
+else()
+  set(_build_suffix "debug")
+endif()
 
 set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
                      ${CMAKE_BINARY_DIR}/media
@@ -30,7 +36,9 @@ set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
                      ${CMAKE_BINARY_DIR}/userdata)
 set(APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/lib/libatomic.so.1
                         ${TOOLCHAIN}/${HOST}/sysroot/lib/libcrypt.so.1
-                        ${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
+                        ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libffi.so.8)
+                        #${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0)
+                        #${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
 set(BIN_ADDONS_DIR ${DEPENDS_PATH}/addons)
 
 file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "
