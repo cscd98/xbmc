@@ -8,6 +8,8 @@
 
 #include "SeatInputProcessing.h"
 
+#include "utils/log.h"
+
 #include <cassert>
 #include <memory>
 
@@ -20,15 +22,27 @@ CSeatInputProcessing::CSeatInputProcessing(wayland::surface_t const& inputSurfac
 
 void CSeatInputProcessing::AddSeat(CSeat* seat)
 {
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: AddSeat called for seat {} ({})", 
+            seat->GetGlobalName(), seat->GetName());
   assert(m_seats.find(seat->GetGlobalName()) == m_seats.end());
   auto& seatState = m_seats.emplace(seat->GetGlobalName(), seat).first->second;
 
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: Creating keyboard processor");
   seatState.keyboardProcessor = std::make_unique<CInputProcessorKeyboard>(*this);
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: Adding keyboard handler to seat");
   seat->AddRawInputHandlerKeyboard(seatState.keyboardProcessor.get());
+  
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: Creating pointer processor");
   seatState.pointerProcessor = std::make_unique<CInputProcessorPointer>(m_inputSurface, *this);
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: Adding pointer handler to seat");
   seat->AddRawInputHandlerPointer(seatState.pointerProcessor.get());
+  
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: Creating touch processor");
   seatState.touchProcessor = std::make_unique<CInputProcessorTouch>(m_inputSurface);
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: Adding touch handler to seat");
   seat->AddRawInputHandlerTouch(seatState.touchProcessor.get());
+  
+  CLog::Log(LOGDEBUG, "SeatInputProcessing: AddSeat complete for seat {}", seat->GetGlobalName());
 }
 
 void CSeatInputProcessing::RemoveSeat(CSeat* seat)

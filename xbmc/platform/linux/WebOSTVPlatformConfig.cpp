@@ -12,6 +12,10 @@
 #include "utils/JSONVariantWriter.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
+#include "utils/SystemInfo.h"
+
+#include <fstream>
+#include <sstream>
 
 namespace
 {
@@ -38,6 +42,8 @@ constexpr const char* DDPLUS = "DD+";
 
 CVariant ms_config;
 } // namespace
+
+unsigned int WebOSTVPlatformConfig::m_webOSVersion = 0;
 
 void WebOSTVPlatformConfig::Load()
 {
@@ -69,7 +75,88 @@ void WebOSTVPlatformConfig::Load()
 
 int WebOSTVPlatformConfig::GetWebOSVersion()
 {
-  return ms_config[PLATFORM_CODE].asInteger();
+  CLog::LogF(LOGDEBUG, "Getting webOS version");
+
+  int cfg_version = ms_config[PLATFORM_CODE].asInteger();
+  if (cfg_version > 0)
+  {
+    CLog::LogF(LOGDEBUG, "Detected webOS version from ms_config: {}", cfg_version);
+    return cfg_version;
+  }
+
+  if (m_webOSVersion > 0)
+  {
+    CLog::LogF(LOGDEBUG, "Getting webOS version (already set): {}", m_webOSVersion);
+    return m_webOSVersion;
+  }
+
+  std::string pretty = g_sysinfo.GetOsPrettyNameWithVersion();
+  CLog::LogF(LOGDEBUG, "OS Pretty Name: {}", pretty);
+
+  // Try to parse a version number directly from PRETTY_NAME
+  std::size_t pos = pretty.find_first_of("0123456789");
+  if (pos != std::string::npos)
+  {
+    char* endptr = nullptr;
+    long maj = std::strtol(pretty.c_str() + pos, &endptr, 10);
+    CLog::LogF(LOGDEBUG, "Detected webOS version from OS Pretty Name: {}", maj);
+
+    if(maj > 0)
+    {
+      m_webOSVersion = maj;
+      return static_cast<int>(m_webOSVersion);
+    }
+  }
+
+  std::string version = g_sysinfo.GetOsVersion();
+  CLog::LogF(LOGDEBUG, "GetOsVersion: {}", version);
+
+  if (!version.empty())
+  {
+    char* endptr = nullptr;
+    long maj = std::strtol(version.c_str(), &endptr, 10);
+
+    if (endptr != version.c_str()) // parsed at least one digit
+    {
+      m_webOSVersion = static_cast<int>(maj);
+      CLog::LogF(LOGDEBUG, "Parsed webOS major version: {}", m_webOSVersion);
+      return m_webOSVersion;
+    }
+  }
+
+  // Fallback: parse /var/run/nyx/os_info.json
+  CLog::LogF(LOGERROR, "WebOS version -fallback");
+
+  std::ifstream nyxInfo("/var/run/nyx/os_info.json");
+  if (nyxInfo.is_open())
+  {
+    std::ostringstream buf;
+    buf << nyxInfo.rdbuf();
+    CVariant json;
+    if (CJSONVariantParser::Parse(buf.str(), json))
+    {
+      std::string releaseStr;
+      if (json.isMember("webos_release"))
+        releaseStr = json["webos_release"].asString();
+
+      if (!releaseStr.empty())
+      {
+        char* endptr = nullptr;
+        long maj = std::strtol(releaseStr.c_str(), &endptr, 10);
+        CLog::LogF(LOGDEBUG, "Detected webOS version from nyx: {}", maj);
+
+        if(maj > 0)
+        {
+          m_webOSVersion = maj;
+          return static_cast<int>(m_webOSVersion);
+        }
+      }
+    }
+  }
+
+  CLog::LogF(LOGERROR, "Failed to detect webOS version");
+
+  return 0;
 }
 
 bool WebOSTVPlatformConfig::SupportsDTS()
@@ -89,7 +176,16 @@ void WebOSTVPlatformConfig::LoadARCStatus()
   m_requestContextARC->callback = [](LSHandle* sh, LSMessage* msg, void* ctx) -> bool
   {
     auto* self = static_cast<WebOSTVPlatformConfig*>(ctx);
-    std::string message = HLunaServiceMessage(msg);
+
+    const char* raw = HLunaServiceMessage(msg);
+    std::string message = raw ? std::string(raw) : std::string();
+
+    if (message.empty())
+    {
+      CLog::LogF(LOGERROR, "Failed to receive ARC luna message");
+      return false;
+    }
+
     CLog::LogF(LOGDEBUG, "ARC controller: {}", message);
 
     CVariant parsed;

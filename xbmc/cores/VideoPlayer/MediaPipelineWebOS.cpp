@@ -58,6 +58,9 @@
 #include <player-factory/customplayer.hpp>
 #include <starfish-media-pipeline/StarfishMediaAPIs.h>
 
+#include <cpptrace/cpptrace.hpp>
+#include <cpptrace/from_current.hpp>
+
 extern "C"
 {
 #include <libavcodec/defs.h>
@@ -193,6 +196,15 @@ CMediaPipelineWebOS::CMediaPipelineWebOS(CProcessInfo& processInfo,
   m_picture.videoBuffer = new CStarfishVideoBuffer();
 
   m_webOSVersion = WebOSTVPlatformConfig::GetWebOSVersion();
+
+  if(m_webOSVersion < 4)
+  {
+    CLog::LogF(LOGDEBUG, "Using legacy media pipeline for webOS version {}", m_webOSVersion);
+    m_useLegacy = true;
+  }
+  else
+    CLog::LogF(LOGDEBUG, "Using modern media pipeline for webOS version {}", m_webOSVersion);
+
   if (WebOSTVPlatformConfig::SupportsDTS())
     ms_codecMap.emplace(AV_CODEC_ID_DTS, "DTS");
   m_processInfo.GetVideoBufferManager().ReleasePools();
@@ -271,19 +283,25 @@ std::string CMediaPipelineWebOS::GetVideoInfo()
   return m_videoInfo;
 }
 
-bool CMediaPipelineWebOS::Supports(const AVCodecID codec, const int profile)
+bool CMediaPipelineWebOS::Supports(const AVCodecID codec, const int profile, const unsigned int webOSVersion)
 {
   if ((codec == AV_CODEC_ID_H264 || codec == AV_CODEC_ID_AVS || codec == AV_CODEC_ID_CAVS) &&
       profile == AV_PROFILE_H264_HIGH_10)
     return false;
+
+  if (webOSVersion <=3 && codec == AV_CODEC_ID_MP3)
+    return false;
+
   return ms_codecMap.contains(codec);
 }
 
 void CMediaPipelineWebOS::AcbCallback(
     long acbId, long taskId, long eventType, long appState, long playState, const char* reply)
 {
+  CLog::LogF(LOGDEBUG, "AcbCallback");
+
   CLog::LogF(LOGDEBUG, "acbId={}, taskId={}, eventType={}, appState={}, playState={}, reply={}",
-             acbId, taskId, eventType, appState, playState, reply);
+             acbId, taskId, eventType, appState, playState, reply ? reply : "<null>");
 }
 
 void CMediaPipelineWebOS::FlushVideoMessages()
@@ -299,6 +317,8 @@ void CMediaPipelineWebOS::FlushAudioMessages()
 
 bool CMediaPipelineWebOS::OpenAudioStream(CDVDStreamInfo& audioHint)
 {
+  CLog::LogF(LOGDEBUG, "OpenAudioStream");
+
   m_audioHint = audioHint;
 
   if (m_loaded)
@@ -322,7 +342,7 @@ bool CMediaPipelineWebOS::OpenAudioStream(CDVDStreamInfo& audioHint)
       m_processInfo.SetAudioChannels(CAEUtil::GetAEChannelLayout(audioHint.channellayout));
       m_processInfo.SetAudioSampleRate(audioHint.samplerate);
       m_processInfo.SetAudioBitsPerSample(audioHint.bitspersample);
-      if (Supports(audioHint.codec, audioHint.profile))
+      if (Supports(audioHint.codec, audioHint.profile, m_webOSVersion))
         m_processInfo.SetAudioDecoderName("starfish-" +
                                           std::string(ms_codecMap.at(audioHint.codec).data()));
       else if (m_audioEncoder)
@@ -346,7 +366,9 @@ bool CMediaPipelineWebOS::OpenAudioStream(CDVDStreamInfo& audioHint)
 
 bool CMediaPipelineWebOS::OpenVideoStream(CDVDStreamInfo hint)
 {
-  if (!Supports(hint.codec, hint.profile))
+  CLog::LogF(LOGDEBUG, "OpenVideoStream");
+
+  if (!Supports(hint.codec, hint.profile, m_webOSVersion))
   {
     CLog::LogF(LOGERROR, "Unsupported codec: {}", hint.codec);
     return false;
@@ -529,6 +551,8 @@ void CMediaPipelineWebOS::SetSubtitleDelay(const double delay)
 
 bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHint)
 {
+  CLog::LogF(LOGDEBUG, "Load");
+
   std::scoped_lock videoLock(m_videoCriticalSection);
   std::scoped_lock audioLock(m_audioCriticalSection);
 
@@ -551,7 +575,7 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
       case CRYPTO_SESSION_SYSTEM_WIDEVINE:
         CLog::Log(LOGDEBUG, "Setting drm type to WIDEVINE_MODULAR with svpVersion {}", svpVersion);
         p["option"]["externalStreamingInfo"]["svpVersion"] = svpVersion;
-        p["option"]["drm"]["type"] = "WIDEVINE_MODULAR";
+        p["option"]["drm"]["type"] = "WIDEVINE_MODULAR"; // N
         break;
       case CRYPTO_SESSION_SYSTEM_PLAYREADY:
         CLog::Log(LOGDEBUG, "Setting drm type to PLAYREADY with svpVersion {}", svpVersion);
@@ -589,6 +613,9 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   }
 
   SetupBitstreamConverter(videoHint);
+
+  CLog::LogF(LOGDEBUG, "Finished setting up bitstream converter");
+
   CVariant& contents = p["option"]["externalStreamingInfo"]["contents"];
   if (videoHint.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION)
   {
@@ -601,16 +628,21 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   const auto winSystem = dynamic_cast<CWinSystemWaylandWebOS*>(CServiceBroker::GetWinSystem());
   if (winSystem->SupportsExportedWindow())
   {
-    p["option"]["windowId"] = winSystem->GetExportedWindowName();
+    CLog::LogF(LOGDEBUG, "Setting up exported window for video output");
+    p["option"]["windowId"] = winSystem->GetExportedWindowName(); // N
   }
   else
   {
+    CLog::LogF(LOGDEBUG, "Setting up AcbHandle for video buffer");
+
     auto buffer = static_cast<CStarfishVideoBuffer*>(m_picture.videoBuffer);
     const std::unique_ptr<AcbHandle>& acb = buffer->CreateAcbHandle();
     if (acb->Id())
     {
+      CLog::LogF(LOGDEBUG, "Initializing AcbHandle with id {}", acb->Id());
       if (!AcbAPI_initialize(acb->Id(), PLAYER_TYPE_MSE, getenv("APPID"), &AcbCallback))
       {
+        CLog::LogF(LOGERROR, "AcbAPI_initialize failed for AcbHandle id {}", acb->Id());
         buffer->ResetAcbHandle();
       }
     }
@@ -629,6 +661,11 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   }
   else
   {
+    CLog::LogF(LOGDEBUG,
+               "audio hints: CodecID {}, Level {}, Profile {}, PTS_invalid {}, Tag {}, "
+               "Extradata-Size: {}",
+               audioHint.codec, audioHint.level, audioHint.profile, audioHint.ptsinvalid,
+               audioHint.codec_tag, audioHint.extradata.GetSize());
     const std::string audioCodec = SetupAudio(audioHint, contents);
     if (audioCodec.empty())
       return false;
@@ -642,17 +679,18 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   contents["format"] = "RAW";
   p["mediaTransportType"] = "BUFFERSTREAM";
   contents["provider"] = CCompileInfo::GetPackage();
-  p["option"]["transmission"]["contentsType"] = "LIVE";
-  p["option"]["transmission"]["trickType"] = "client-side";
-  p["option"]["seekMode"] = "keep-rate";
-  p["option"]["useDroppedFrameEvent"] = true;
-  p["option"]["externalStreamingInfo"]["streamQualityInfo"] = true;
-  p["option"]["externalStreamingInfo"]["streamQualityInfoNonFlushable"] = true;
-  p["option"]["externalStreamingInfo"]["streamQualityInfoCorruptedFrame"] = true;
+  p["option"]["transmission"]["contentsType"] = "LIVE"; // N
+  p["option"]["transmission"]["trickType"] = "client-side"; // N
+  p["option"]["seekMode"] = "keep-rate"; //"keep-rate"; // N late_Iframe
+  p["option"]["useDroppedFrameEvent"] = true; /// N
+  
+  p["option"]["externalStreamingInfo"]["streamQualityInfo"] = true; // Y
+  p["option"]["externalStreamingInfo"]["streamQualityInfoNonFlushable"] = true; // Y
+  p["option"]["externalStreamingInfo"]["streamQualityInfoCorruptedFrame"] = true; // Y
 
   CVariant& esInfo = contents["esInfo"];
   esInfo["pauseAtDecodeTime"] = true;
-  esInfo["seperatedPTS"] = true;
+  esInfo["seperatedPTS"] = true; // N
   esInfo["ptsToDecode"] = m_pts.load().count();
   esInfo["videoWidth"] = videoHint.width;
   esInfo["videoHeight"] = videoHint.height;
@@ -664,8 +702,8 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
 
   CVariant& bufferingCtrInfo = p["option"]["externalStreamingInfo"]["bufferingCtrInfo"];
   bufferingCtrInfo["preBufferByte"] = PRE_BUFFER_BYTES;
-  bufferingCtrInfo["bufferMinLevel"] = MIN_BUFFER_LEVEL;
-  bufferingCtrInfo["bufferMaxLevel"] = MAX_BUFFER_LEVEL;
+  bufferingCtrInfo["bufferMinLevel"] = MIN_BUFFER_LEVEL; // N
+  bufferingCtrInfo["bufferMaxLevel"] = MAX_BUFFER_LEVEL; // N
   bufferingCtrInfo["qBufferLevelVideo"] = MAX_QUEUE_BUFFER_LEVEL;
   bufferingCtrInfo["srcBufferLevelVideo"]["minimum"] = MIN_SRC_BUFFER_LEVEL_VIDEO;
   bufferingCtrInfo["srcBufferLevelVideo"]["maximum"] = MAX_SRC_BUFFER_LEVEL_VIDEO;
@@ -676,12 +714,31 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   int32_t maxWidth = 0;
   int32_t maxHeight = 0;
   int32_t maxFramerate = 0;
-  smp::util::getMaxVideoResolution(ms_codecMap.at(videoHint.codec).data(), &maxWidth, &maxHeight,
-                                   &maxFramerate);
-  p["option"]["adaptiveStreaming"]["adaptiveResolution"] = true;
+
+  CLog::LogF(LOGDEBUG, "Getting max video resolution for codec {}", videoHint.codec);
+
+  if (m_webOSVersion >= 4)
+  {
+    smp::util::getMaxVideoResolution(std::string(ms_codecMap.at(videoHint.codec)), &maxWidth,
+                                     &maxHeight, &maxFramerate);
+  }
+  else
+  {
+    // sensible defaults for older webOS versions?
+    maxWidth  = 3840;
+    maxHeight = 2160;
+    maxFramerate = 60;
+  }
+
+  CLog::LogF(LOGDEBUG, "Max video resolution: {}x{} @ {}fps", maxWidth, maxHeight, maxFramerate);
+
+  p["option"]["adaptiveStreaming"]["adaptiveResolution"] = true; // Y but below is N
   p["option"]["adaptiveStreaming"]["maxWidth"] = maxWidth;
   p["option"]["adaptiveStreaming"]["maxHeight"] = maxHeight;
   p["option"]["adaptiveStreaming"]["maxFrameRate"] = maxFramerate;
+
+  p["option"]["lowDelayMode"] = true;
+  p["option"]["queryPosition"] = true;
 
   CVariant payloadArgs;
   payloadArgs["args"] = CVariant(CVariant::VariantTypeArray);
@@ -692,13 +749,32 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
 
   if (!m_mediaAPIs->notifyForeground())
     CLog::LogF(LOGERROR, "notifyForeground failed");
-  CLog::LogFC(LOGDEBUG, LOGVIDEO, "Sending Load payload {}", payload);
-  if (!m_mediaAPIs->Load(payload.c_str(), &CMediaPipelineWebOS::PlayerCallback, this))
-  {
-    CLog::LogF(LOGERROR, "Load failed");
-    m_messageQueueParent.Put(std::make_shared<CDVDMsg>(CDVDMsg::PLAYER_ABORT));
-    return false;
-  }
+  CLog::LogF(LOGDEBUG, "Sending Load payload {}", payload);
+
+  cpptrace::try_catch(
+    [&]
+    {
+      if (!m_mediaAPIs->Load(payload.c_str(), &CMediaPipelineWebOS::PlayerCallback, this))
+      {
+        CLog::LogF(LOGERROR, "Load failed");
+        m_messageQueueParent.Put(std::make_shared<CDVDMsg>(CDVDMsg::PLAYER_ABORT));
+        throw std::runtime_error("Load failed");
+      }
+    },
+    [&] (const std::runtime_error& e) {
+      auto trace = cpptrace::from_current_exception();
+      CLog::Log(LOGDEBUG, "Load - Stack runtime trace:\n{}", trace.to_string());
+    },
+    [&] (const std::exception& e) {
+      auto trace = cpptrace::from_current_exception();
+      CLog::Log(LOGDEBUG, "Load terminating with exception: {}", e.what());
+      CLog::Log(LOGDEBUG, "Load - Stack trace:\n{}", trace.to_string());
+    },
+    [&] () { // serves the same role as `catch(...)`, an any exception handler
+      auto trace = cpptrace::from_current_exception();
+      CLog::Log(LOGDEBUG, "Load - Unknown exception trace:\n{}", trace.to_string());
+    }
+  );
 
   SetHDR(videoHint);
 
@@ -755,7 +831,7 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
       m_processInfo.SetAudioChannels(CAEUtil::GuessChLayout(audioHint.channels));
     m_processInfo.SetAudioSampleRate(audioHint.samplerate);
     m_processInfo.SetAudioBitsPerSample(audioHint.bitspersample);
-    if (Supports(audioHint.codec, audioHint.profile))
+    if (Supports(audioHint.codec, audioHint.profile, m_webOSVersion))
       m_processInfo.SetAudioDecoderName(std::string("starfish-") +
                                         ms_codecMap.at(audioHint.codec).data());
     else if (m_audioEncoder)
@@ -767,11 +843,17 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   }
 
   m_renderManager.ShowVideo(true);
+
+  CLog::LogF(LOGDEBUG, "Finished Load");
+
   return true;
 }
 
 void CMediaPipelineWebOS::Unload(const bool sync)
 {
+
+  CLog::LogF(LOGDEBUG, "Unload");
+
   CThread::StopThread(true);
   if (m_audioThread.joinable())
     m_audioThread.join();
@@ -795,6 +877,8 @@ void CMediaPipelineWebOS::Unload(const bool sync)
 
 std::string CMediaPipelineWebOS::SetupAudio(CDVDStreamInfo& audioHint, CVariant& optInfo)
 {
+  CLog::LogF(LOGDEBUG, "SetupAudio");
+
   m_audioCodec = nullptr;
   m_audioEncoder = nullptr;
   m_audioResample = nullptr;
@@ -812,7 +896,7 @@ std::string CMediaPipelineWebOS::SetupAudio(CDVDStreamInfo& audioHint, CVariant&
   const bool allowPassthrough = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                                     CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH) ||
                                 audioHint.cryptoSession;
-  const bool supported = Supports(audioHint.codec, audioHint.profile);
+  bool supported = Supports(audioHint.codec, audioHint.profile, m_webOSVersion);
 
   if (!supported && audioHint.cryptoSession)
   {
@@ -895,6 +979,8 @@ std::string CMediaPipelineWebOS::SetupAudio(CDVDStreamInfo& audioHint, CVariant&
 
 void CMediaPipelineWebOS::SetupBitstreamConverter(CDVDStreamInfo& hint)
 {
+  CLog::LogF(LOGDEBUG, "Setting up bitstream converter for codec {}", hint.codec);
+
   const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
   const bool convertDovi =
       hint.dovi.el_present_flag || settings->GetBool(CSettings::SETTING_VIDEOPLAYER_CONVERTDOVI);
@@ -954,10 +1040,14 @@ void CMediaPipelineWebOS::SetupBitstreamConverter(CDVDStreamInfo& hint)
       }
     }
   }
+
+  CLog::LogF(LOGDEBUG, "Bitstream converter setup complete");
 }
 
 void CMediaPipelineWebOS::SetHDR(const CDVDStreamInfo& hint) const
 {
+  CLog::LogF(LOGDEBUG, "Setting HDR info for hdrType {}", hint.hdrType);
+
   if (hint.hdrType == StreamHdrType::HDR_TYPE_NONE)
     return;
 
@@ -1028,9 +1118,13 @@ void CMediaPipelineWebOS::SetHDR(const CDVDStreamInfo& hint) const
   std::string payload;
   CJSONVariantWriter::Write(hdrData, payload, true);
 
-  CLog::LogFC(LOGDEBUG, LOGVIDEO, "Setting HDR data payload {}", payload);
-  if (!m_mediaAPIs->setHdrInfo(payload.c_str()))
+  CLog::LogF(LOGDEBUG, "Setting HDR data payload {}", payload);
+
+  // TODO: use updateHdrInfo function in webOS < 5
+  if (m_webOSVersion >= 5 && !m_mediaAPIs->setHdrInfo(payload.c_str()))
     CLog::LogF(LOGERROR, "setHdrInfo failed");
+
+  CLog::LogF(LOGDEBUG, "HDR info set complete");
 }
 
 void CMediaPipelineWebOS::FeedAudioData(const std::shared_ptr<CDVDMsg>& msg)
@@ -1051,9 +1145,20 @@ void CMediaPipelineWebOS::FeedAudioData(const std::shared_ptr<CDVDMsg>& msg)
 
   std::string json;
   CJSONVariantWriter::Write(payload, json, true);
-  CLog::LogFC(LOGDEBUG, LOGVIDEO, "{}", json);
+  CLog::LogF(LOGDEBUG, "{}", json);
 
-  const std::string result = m_mediaAPIs->Feed(json.c_str());
+  const char* json_cstr = json.empty() ? "" : json.c_str();
+
+  std::string result;
+  if (m_useLegacy && m_mediaAPIs)
+  {
+    CLog::LogF(LOGDEBUG, "Feed legacy! (audio)");
+    auto legacyBuf = FeedLegacy(m_mediaAPIs.get(), json_cstr);
+    if (legacyBuf && legacyBuf.get())
+      result = std::string(legacyBuf.get());
+  }
+  else
+    result = m_mediaAPIs->Feed(json_cstr);
 
   if (result.find("Ok") != std::string::npos)
   {
@@ -1074,6 +1179,8 @@ void CMediaPipelineWebOS::FeedAudioData(const std::shared_ptr<CDVDMsg>& msg)
 
 void CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
 {
+  CLog::LogF(LOGDEBUG, "Feeding video packet");
+
   DemuxPacket* packet = std::static_pointer_cast<CDVDMsgDemuxerPacket>(msg)->GetPacket();
 
   auto pts = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -1116,17 +1223,27 @@ void CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
     CJSONVariantWriter::Write(time, payload, true);
 
     auto player = static_cast<mediapipeline::CustomPlayer*>(m_mediaAPIs->player.get());
-    auto pipeline = static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
+    auto pipeline = static_cast<mediapipeline::CustomPipeline*>(nullptr);
+
+    if(m_webOSVersion >= 4)
+      pipeline = static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
+
     if (!m_mediaAPIs->setTimeToDecode(payload.c_str()))
     {
       CLog::LogF(LOGERROR, "setTimeToDecode failed");
       MEDIA_CUSTOM_CONTENT_INFO_T contentInfo;
-      pipeline->loadSpi_getInfo(&contentInfo);
+
+      if(pipeline)
+      {
+        pipeline->loadSpi_getInfo(&contentInfo);
+        pipeline->setContentInfo(MEDIA_CUSTOM_SRC_TYPE_ES, &contentInfo);
+      }
+
       contentInfo.ptsToDecode = pts.count();
-      pipeline->setContentInfo(MEDIA_CUSTOM_SRC_TYPE_ES, &contentInfo);
     }
 
-    pipeline->sendSegmentEvent();
+    if (pipeline && m_webOSVersion >= 3)
+      pipeline->sendSegmentEvent();
 
     m_pts = pts;
 
@@ -1152,9 +1269,23 @@ void CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
 
     std::string json;
     CJSONVariantWriter::Write(payload, json, true);
-    CLog::LogFC(LOGDEBUG, LOGVIDEO, "{}", json);
+    CLog::LogF(LOGDEBUG, "{}", json);
 
-    const std::string result = m_mediaAPIs->Feed(json.c_str());
+    const char* json_cstr = json.empty() ? "" : json.c_str();
+
+    std::string result;
+    if (m_useLegacy && m_mediaAPIs)
+    {
+      CLog::LogF(LOGDEBUG, "FeedLegacy!");
+      auto legacyBuf = FeedLegacy(m_mediaAPIs.get(), json_cstr);
+      if (legacyBuf && legacyBuf.get())
+        result = std::string(legacyBuf.get());
+    }
+    else
+    {
+      if (m_mediaAPIs)
+        result = m_mediaAPIs->Feed(json_cstr);
+    }
 
     if (result.find("Ok") != std::string::npos)
     {
@@ -1497,8 +1628,13 @@ void CMediaPipelineWebOS::GetVideoResolution(unsigned int& width, unsigned int& 
 
 void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, const char* strValue)
 {
-  const std::string logStr = strValue != nullptr ? strValue : "";
-  CLog::LogF(LOGDEBUG, "type: {}, numValue: {}, strValue: {}", type, numValue, logStr);
+  CLog::LogF(LOGDEBUG, "PlayerCallback (3)");
+
+  const char* safeStr = (strValue != nullptr) ? strValue : "";
+  std::string logStr(safeStr);
+
+  CLog::LogF(LOGDEBUG, "type: {}, numValue: {}, strValue: {}",
+    type, numValue, logStr.empty() ? "(null)" : logStr);
 
   const auto buffer = static_cast<CStarfishVideoBuffer*>(m_picture.videoBuffer);
 
@@ -1509,8 +1645,14 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
   const std::unique_ptr<AcbHandle>& acb = buffer->GetAcbHandle();
   switch (type)
   {
+    case PF_EVENT_TYPE_INT_NUM_PROGRAM:           // type 13 (0xd)
+    case PF_EVENT_TYPE_INT_NUM_VIDEO_TRACK:       // type 14 (0xe)  
+    case PF_EVENT_TYPE_INT_NUM_AUDIO_TRACK:       // type 15 (0xf)
+      CLog::LogF(LOGDEBUG, "Track/program count event ignored: type={}, count={}", type, numValue);
+      break;
     case PF_EVENT_TYPE_FRAMEREADY:
     {
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_FRAMEREADY");
       m_pts = std::chrono::nanoseconds(numValue);
       const double pts = GetCurrentPts();
       ProcessOverlays(pts);
@@ -1524,20 +1666,31 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
       break;
     }
     case PF_EVENT_TYPE_STR_AUDIO_INFO:
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_STR_AUDIO_INFO");
       if (acb)
         AcbAPI_setMediaAudioData(acb->Id(), logStr.c_str(), &acb->TaskId());
       break;
     case PF_EVENT_TYPE_STR_VIDEO_INFO:
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_STR_VIDEO_INFO");
       if (acb)
-        AcbAPI_setMediaVideoData(acb->Id(), logStr.c_str(), &acb->TaskId());
+        AcbAPI_setMediaVideoData(acb->Id(), logStr.c_str(), &acb->TaskId()); // 2 params? - m_acbAPI.setMediaVideoData(m_acbID, mediaVideoData.c_str());
       break;
     case PF_EVENT_TYPE_STR_STATE_UPDATE__LOADCOMPLETED:
     {
-      const auto player = static_cast<mediapipeline::CustomPlayer*>(m_mediaAPIs->player.get());
-      const auto pipeline =
-          static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
-      m_pipeline = pipeline->GetGStreamerElements(
-          {0, MIN_SRC_BUFFER_LEVEL_VIDEO, MAX_SRC_BUFFER_LEVEL_VIDEO, MAX_BUFFER_LEVEL});
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_STR_STATE_UPDATE__LOADCOMPLETED");
+
+      if(m_webOSVersion >= 4)
+      {
+        CLog::LogF(LOGDEBUG, "Load completed event received");
+        const auto player = static_cast<mediapipeline::CustomPlayer*>(m_mediaAPIs->player.get());
+        CLog::LogF(LOGDEBUG, "Getting GStreamer elements from pipeline");
+        const auto pipeline =
+            static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
+        CLog::LogF(LOGDEBUG, "GStreamer elements obtained");
+        m_pipeline = pipeline->GetGStreamerElements(
+            {0, MIN_SRC_BUFFER_LEVEL_VIDEO, MAX_SRC_BUFFER_LEVEL_VIDEO, MAX_BUFFER_LEVEL});
+        CLog::LogF(LOGDEBUG, "GStreamer m_pipeline set");
+      }
 
       if (acb)
       {
@@ -1546,6 +1699,8 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
         AcbAPI_setState(acb->Id(), APPSTATE_FOREGROUND, PLAYSTATE_LOADED, &acb->TaskId());
       }
       m_renderManager.ShowVideo(true);
+
+      CLog::LogF(LOGDEBUG, "Starting playback");
       if (!m_mediaAPIs->Play())
         CLog::LogF(LOGERROR, "Failed to play");
       m_loaded = true;
@@ -1555,6 +1710,7 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
       break;
     }
     case PF_EVENT_TYPE_STR_STATE_UPDATE__UNLOADCOMPLETED:
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_STR_STATE_UPDATE__UNLOADCOMPLETED");
       if (acb)
         AcbAPI_setState(acb->Id(), APPSTATE_FOREGROUND, PLAYSTATE_UNLOADED, &acb->TaskId());
       StopThread(true);
@@ -1565,6 +1721,7 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
       UpdateGUISounds(false);
       break;
     case PF_EVENT_TYPE_STR_STATE_UPDATE__PAUSED:
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_STR_STATE_UPDATE__PAUSED");
       if (acb)
         AcbAPI_setState(acb->Id(), APPSTATE_FOREGROUND, PLAYSTATE_PAUSED, &acb->TaskId());
       UpdateGUISounds(false);
@@ -1587,6 +1744,7 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
     }
     case PF_EVENT_TYPE_STR_BUFFERFULL:
     {
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_STR_BUFFERFULL");
       SStateMsg msg{.syncState = IDVDStreamPlayer::SYNC_INSYNC, .player = VideoPlayer_AUDIO};
       m_messageQueueParent.Put(
           std::make_shared<CDVDMsgType<SStateMsg>>(CDVDMsg::PLAYER_REPORT_STATE, msg));
@@ -1596,12 +1754,15 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
       break;
     }
     case PF_EVENT_TYPE_DROPPED_FRAME:
+      CLog::LogF(LOGDEBUG, "PF_EVENT_TYPE_DROPPED_FRAME");
       m_droppedFrames += static_cast<unsigned long>(numValue);
       break;
     case PF_EVENT_TYPE_INT_ERROR:
+      CLog::LogF(LOGERROR, "Pipeline INT_ERROR");
       CLog::LogF(LOGERROR, "Pipeline INT_ERROR numValue: {}, strValue: {}", numValue, logStr);
       break;
     case PF_EVENT_TYPE_STR_ERROR:
+      CLog::LogF(LOGERROR, "Pipeline PF_EVENT_TYPE_STR_ERROR");
       CLog::LogF(LOGERROR, "Pipeline STR_ERROR numValue: {}, strValue: {}", numValue, logStr);
       break;
     default:
@@ -1609,6 +1770,8 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
   }
 
   m_eventCondition.notify_all();
+
+  CLog::LogF(LOGDEBUG, "PlayerCallback processing complete");
 }
 
 void CMediaPipelineWebOS::PlayerCallback(const int32_t type,
@@ -1616,5 +1779,18 @@ void CMediaPipelineWebOS::PlayerCallback(const int32_t type,
                                          const char* strValue,
                                          void* data)
 {
-  static_cast<CMediaPipelineWebOS*>(data)->PlayerCallback(type, numValue, strValue);
+  CLog::LogF(LOGDEBUG, "PlayerCallback");
+
+  try
+  {
+    static_cast<CMediaPipelineWebOS*>(data)->PlayerCallback(type, numValue, strValue);
+  }
+  catch (const std::exception& e)
+  {
+    CLog::LogF(LOGERROR, "Exception in PlayerCallback: {}", e.what());
+  }
+  catch (...)
+  {
+    CLog::LogF(LOGERROR, "Unknown exception in PlayerCallback");
+  }
 }

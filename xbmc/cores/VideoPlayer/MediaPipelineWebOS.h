@@ -78,7 +78,7 @@ public:
    * @param profile profile to check.
    * @return True if supported, false otherwise.
    */
-  static bool Supports(AVCodecID codec, int profile);
+  static bool Supports(AVCodecID codec, int profile, unsigned int webOSVersion);
 
   /**
    * @brief Flush all pending video messages.
@@ -255,6 +255,9 @@ public:
    */
   void GetVideoResolution(unsigned int& width, unsigned int& height) const;
 
+  int GetMessageQueueVideoSize() const { return m_messageQueueVideo.GetDataSize(); }
+  int GetMessageQueueAudioSize() const { return m_messageQueueAudio.GetDataSize(); }
+
 protected:
   /**
    * @brief Video processing thread loop.
@@ -389,6 +392,13 @@ private:
    */
   unsigned int GetQueueLevel(StreamType type) const;
 
+  /**
+   * @brief Use the legacy (webOS 3 feed)
+   * @param api starfish media api
+   * @param payload json to feed
+   */
+  static std::unique_ptr<char[]> FeedLegacy(StarfishMediaAPIs* api, const char* payload);
+
   std::condition_variable m_eventCondition;
   std::mutex m_eventMutex;
 
@@ -425,6 +435,7 @@ private:
   CDVDClock& m_clock;
   CDVDOverlayContainer& m_overlayContainer;
   bool m_hasAudio{true};
+  bool m_useLegacy{false};
 
   std::mutex m_audioInfoMutex;
   std::string m_audioInfo;

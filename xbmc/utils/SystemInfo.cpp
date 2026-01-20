@@ -73,6 +73,10 @@ using namespace winrt::Windows::System::Profile;
 #include <linux/version.h>
 #endif
 
+#if defined(TARGET_WEBOS)
+#include "utils/JSONVariantParser.h"
+#endif
+
 #include <system_error>
 
 /* Expand macro before stringify */
@@ -734,7 +738,6 @@ std::string CSysInfo::GetOsVersion(void)
   if (osVersion.empty())
     osVersion = getValueFromLsb_release(lsb_rel_release);
 #endif // defined(TARGET_LINUX)
-
   if (osVersion.empty())
     osVersion = "0.0";
 
@@ -830,6 +833,7 @@ std::string CSysInfo::GetOsPrettyNameWithVersion(void)
 
   if (osNameVer.find(GetOsVersion()) == std::string::npos)
     osNameVer += " " + GetOsVersion();
+  
 #endif // defined(TARGET_LINUX)
 
   if (osNameVer.empty())
