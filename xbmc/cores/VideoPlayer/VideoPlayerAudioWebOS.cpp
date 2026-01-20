@@ -46,6 +46,10 @@ bool CVideoPlayerAudioWebOS::AcceptsData() const
 
 bool CVideoPlayerAudioWebOS::HasData() const
 {
+  if (!m_mediaPipeline.HasPipeline())
+  {
+    return m_mediaPipeline.GetMessageQueueAudioSize() > 0;
+  }
   return m_mediaPipeline.HasAudioData();
 }
 

@@ -25,6 +25,8 @@
 #include <thread>
 
 #include <starfish-media-pipeline/StarfishMediaAPIs.h>
+#include <player-factory/custompipeline.hpp>
+#include "utils/log.h"
 
 namespace ActiveAE
 {
@@ -255,6 +257,15 @@ public:
    */
   void GetVideoResolution(unsigned int& width, unsigned int& height) const;
 
+  int GetMessageQueueVideoSize() const { return m_messageQueueVideo.GetDataSize(); }
+  int GetMessageQueueAudioSize() const { return m_messageQueueAudio.GetDataSize(); }
+
+  /**
+   * @brief Check if the GStreamer pipeline exists
+   * @return true if m_pipeline is not nullptr
+   */
+  bool HasPipeline() const { return m_pipeline != nullptr; }
+
 protected:
   /**
    * @brief Video processing thread loop.
@@ -388,6 +399,13 @@ private:
    * @return Current queue level as a percentage
    */
   unsigned int GetQueueLevel(StreamType type) const;
+
+  /**
+   * @brief Use the legacy (webOS 3 feed)
+   * @param api starfish media api
+   * @param payload json to feed
+   */
+  static std::unique_ptr<char[]> FeedLegacy(StarfishMediaAPIs* api, const char* payload);
 
   std::condition_variable m_eventCondition;
   std::mutex m_eventMutex;

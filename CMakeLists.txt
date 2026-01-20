@@ -474,8 +474,31 @@ else()
 endif()
 add_dependencies(${APP_NAME_LC} ${APP_NAME_LC}-libraries)
 
+include(FetchContent)
+FetchContent_Declare(
+  cpptrace
+  GIT_REPOSITORY https://github.com/jeremy-rifkin/cpptrace.git
+  GIT_TAG        v1.0.4 # <HASH or TAG>
+)
+FetchContent_MakeAvailable(cpptrace)
+target_link_libraries(VideoPlayer PRIVATE cpptrace::cpptrace)
+target_include_directories(VideoPlayer PRIVATE
+  ${cpptrace_SOURCE_DIR}/include
+)
+target_link_libraries(threads PRIVATE cpptrace::cpptrace)
+target_include_directories(threads PRIVATE
+  ${cpptrace_SOURCE_DIR}/include
+)
+
+
 whole_archive(_MAIN_LIBRARIES ${core_DEPENDS})
-target_link_libraries(${APP_NAME_LC} ${_MAIN_LIBRARIES} lib${APP_NAME_LC} ${DEPLIBS})
+target_link_libraries(${APP_NAME_LC}
+    PRIVATE
+        cpptrace::cpptrace
+        ${_MAIN_LIBRARIES}
+        lib${APP_NAME_LC}
+        ${DEPLIBS}
+)
 unset(_MAIN_LIBRARIES)
 
 if(${CORE_SYSTEM_NAME} MATCHES "windows")
@@ -646,10 +669,12 @@ endif()
 
 include(cmake/scripts/${CORE_SYSTEM_NAME}/Install.cmake)
 
+if(NOT TARGET uninstall)
 # Add uninstall target
 if(CMAKE_GENERATOR MATCHES Makefile)
   add_custom_target(uninstall COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/scripts/common/Uninstall.cmake)
   set_target_properties(uninstall PROPERTIES FOLDER "Build Utilities")
+endif()
 endif()
 
 # Create target that allows to build binary-addons.

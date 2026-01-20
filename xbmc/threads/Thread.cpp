@@ -27,6 +27,8 @@
 #include <fmt/ostream.h>
 #endif
 
+#include <cpptrace/from_current.hpp>
+
 #if FMT_VERSION >= 90000
 template<>
 struct fmt::formatter<std::thread::id> : ostream_formatter
@@ -117,7 +119,8 @@ void CThread::Create(bool bAutoDelete)
     std::unique_lock blockLambdaTillDone(m_CriticalSection);
     m_thread = new std::thread([](CThread* pThread, std::promise<bool> promise)
     {
-      try
+      CPPTRACE_TRY {
+      //try
       {
 
         {
@@ -161,14 +164,19 @@ void CThread::Create(bool bAutoDelete)
           CLog::Log(LOGDEBUG, "Thread {} {} terminating", pThread->m_ThreadName,
                     std::this_thread::get_id());
       }
-      catch (const std::exception& e)
+      } CPPTRACE_CATCH(const std::exception& e) {
+        CLog::Log(LOGDEBUG, "Thread Terminating with Exception: {}", e.what());
+        auto trace = cpptrace::from_current_exception().to_string();
+        CLog::LogF(LOGDEBUG, "Stack trace:\n{}", trace);
+      }
+      /*catch (const std::exception& e)
       {
         CLog::Log(LOGDEBUG, "Thread Terminating with Exception: {}", e.what());
       }
       catch (...)
       {
         CLog::Log(LOGDEBUG,"Thread Terminating with Exception");
-      }
+      }*/
 
       promise.set_value(true);
     }, this, std::move(prom));
