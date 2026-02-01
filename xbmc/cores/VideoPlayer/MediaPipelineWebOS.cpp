@@ -708,10 +708,13 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   else
   {
     // sensible defaults for older webOS versions?
-    maxWidth  = (videoHint.width  > 3840) ? 3840 : videoHint.width;
-    maxHeight = (videoHint.height > 2160) ? 2160 : videoHint.height;
-    maxFramerate = static_cast<double>(videoHint.fpsrate) / static_cast<double>(videoHint.fpsscale);
-    maxFramerate = (maxFramerate > 60) ? 60 : maxFramerate;
+    //maxWidth  = (videoHint.width  > 3840) ? 3840 : videoHint.width;
+    //maxHeight = (videoHint.height > 2160) ? 2160 : videoHint.height;
+    //maxFramerate = static_cast<double>(videoHint.fpsrate) / static_cast<double>(videoHint.fpsscale);
+    //maxFramerate = (maxFramerate > 60) ? 60 : maxFramerate;
+    maxWidth  = 3840;
+    maxHeight = 2160;
+    maxFramerate = 60;
   }
 
   CLog::LogF(LOGDEBUG, "Max video resolution: {}x{} @ {}fps", maxWidth, maxHeight, maxFramerate);
