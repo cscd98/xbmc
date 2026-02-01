@@ -66,12 +66,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            tools/depends
             $HOME/kodi-build-webos/xbmc-deps
-            tools/depends/build
-            tools/depends/target
-          key: kodi-depends-${{ runner.os }}-${{ hashFiles('tools/depends/**') }}
-          restore-keys: |
-            kodi-depends-${{ runner.os }}-
+          key: kodi-depends-${{ runner.os }}
 
       - name: Build Kodi Dependencies
         shell: bash
