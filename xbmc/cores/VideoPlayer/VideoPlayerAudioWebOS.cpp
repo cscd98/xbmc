@@ -7,8 +7,11 @@
  */
 
 #include "VideoPlayerAudioWebOS.h"
+
+#include "platform/linux/WebOSTVPlatformConfig.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "ServiceBroker.h"
 
 CVideoPlayerAudioWebOS::CVideoPlayerAudioWebOS(CMediaPipelineWebOS& mediaPipeline,
                                                CProcessInfo& processInfo)

@@ -18,8 +18,6 @@
 
 #include <unistd.h>
 
-#include "Connection.h"
-
 using namespace KODI::WINDOWING::WAYLAND;
 using namespace std::placeholders;
 
@@ -51,12 +49,8 @@ bool HandleCapabilityChange(const wayland::seat_capability& caps,
                             InstanceProviderT instanceProvider)
 {
   bool hasCapability = caps & cap;
-  bool proxyValid = !!proxy;
 
-  CLog::LogF(LOGDEBUG, "HandleCapabilityChange for {} {}: hasCapability={}, proxyValid={}",
-             seatName, capName, hasCapability, proxyValid);
-
-  if (proxyValid != hasCapability)
+  if ((!!proxy) != hasCapability)
   {
     // Capability changed
 
@@ -64,10 +58,7 @@ bool HandleCapabilityChange(const wayland::seat_capability& caps,
     {
       // The capability was added
       CLog::Log(LOGDEBUG, "Wayland seat {} gained capability {}", seatName, capName);
-      CLog::LogF(LOGDEBUG, "About to call instanceProvider for {} {}", seatName, capName);
       proxy = instanceProvider();
-      CLog::LogF(LOGDEBUG, "instanceProvider returned for {} {}, proxy now valid={}", 
-                 seatName, capName, !!proxy);
       return true;
     }
     else
@@ -76,11 +67,6 @@ bool HandleCapabilityChange(const wayland::seat_capability& caps,
       CLog::Log(LOGDEBUG, "Wayland seat {} lost capability {}", seatName, capName);
       proxy.proxy_release();
     }
-  }
-  else
-  {
-    CLog::LogF(LOGDEBUG, "No capability change for {} {}: proxyValid={}, hasCapability={}",
-               seatName, capName, proxyValid, hasCapability);
   }
 
   return false;
@@ -91,28 +77,8 @@ bool HandleCapabilityChange(const wayland::seat_capability& caps,
 CSeat::CSeat(std::uint32_t globalName, wayland::seat_t const& seat, CConnection& connection)
 : m_globalName{globalName}, m_seat{seat}, m_selection{connection, seat}
 {
-  CLog::Log(LOGDEBUG, "CSeat: Constructing seat with globalName={}", globalName);
-  m_seat.on_name() = [this](std::string name) { 
-    CLog::Log(LOGDEBUG, "CSeat: Received name '{}' for seat {}", name, m_globalName);
-    m_name = std::move(name); 
-  };
-  m_seat.on_capabilities() = [this](const wayland::seat_capability& caps) {
-    CLog::Log(LOGDEBUG, "CSeat: Received capabilities event for seat {} ({})", 
-              m_globalName, GetName());
-    CLog::Log(LOGDEBUG, "CSeat: Capabilities - keyboard:{} pointer:{} touch:{}",
-              !!(caps & wayland::seat_capability::keyboard),
-              !!(caps & wayland::seat_capability::pointer),
-              !!(caps & wayland::seat_capability::touch));
-    CLog::Log(LOGDEBUG, "CSeat: Number of registered handlers - keyboard:{} pointer:{} touch:{}",
-              m_rawKeyboardHandlers.size(), m_rawPointerHandlers.size(), m_rawTouchHandlers.size());
-    HandleOnCapabilities(caps);
-  };
-  // WEBOS 3 FIX: Capabilities may have been sent before we attached handlers
-  // Force a capability check by doing a roundtrip
-  CLog::LogF(LOGDEBUG, "CSeat: Forcing capability roundtrip for webOS compatibility");
-  connection.GetDisplay().roundtrip();
-
-  CLog::Log(LOGDEBUG, "CSeat: Seat {} construction complete", globalName);
+  m_seat.on_name() = [this](std::string name) { m_name = std::move(name); };
+  m_seat.on_capabilities() = std::bind(&CSeat::HandleOnCapabilities, this, std::placeholders::_1);
 }
 
 CSeat::~CSeat() noexcept = default;
@@ -120,10 +86,7 @@ CSeat::~CSeat() noexcept = default;
 void CSeat::AddRawInputHandlerKeyboard(KODI::WINDOWING::WAYLAND::IRawInputHandlerKeyboard *rawKeyboardHandler)
 {
   assert(rawKeyboardHandler);
-  CLog::Log(LOGDEBUG, "CSeat: Adding keyboard handler to seat {} ({}), current count: {}", 
-            m_globalName, GetName(), m_rawKeyboardHandlers.size());
   m_rawKeyboardHandlers.emplace(rawKeyboardHandler);
-  CLog::Log(LOGDEBUG, "CSeat: Keyboard handler added, new count: {}", m_rawKeyboardHandlers.size());
 }
 
 void CSeat::RemoveRawInputHandlerKeyboard(KODI::WINDOWING::WAYLAND::IRawInputHandlerKeyboard *rawKeyboardHandler)
@@ -155,72 +118,17 @@ void CSeat::RemoveRawInputHandlerTouch(KODI::WINDOWING::WAYLAND::IRawInputHandle
 
 void CSeat::HandleOnCapabilities(const wayland::seat_capability& caps)
 {
-  CLog::Log(LOGDEBUG,
-            "CSeat::HandleOnCapabilities - seat {} ({}) caps: keyboard={} pointer={} touch={}",
-            m_globalName,
-            GetName(),
-            !!(caps & wayland::seat_capability::keyboard),
-            !!(caps & wayland::seat_capability::pointer),
-            !!(caps & wayland::seat_capability::touch));
-
-  if (HandleCapabilityChange(caps,
-                             wayland::seat_capability::keyboard,
-                             GetName(),
-                             "keyboard",
-                             m_keyboard,
-                             std::bind(&wayland::seat_t::get_keyboard, m_seat)))
+  if (HandleCapabilityChange(caps, wayland::seat_capability::keyboard, GetName(), "keyboard", m_keyboard, std::bind(&wayland::seat_t::get_keyboard, m_seat)))
   {
-    CLog::Log(LOGDEBUG,
-              "CSeat::HandleOnCapabilities - seat {} gained keyboard capability, installing handlers",
-              m_globalName);
     HandleKeyboardCapability();
   }
-  else
+  if (HandleCapabilityChange(caps, wayland::seat_capability::pointer, GetName(), "pointer", m_pointer, std::bind(&wayland::seat_t::get_pointer, m_seat)))
   {
-    CLog::Log(LOGDEBUG,
-              "CSeat::HandleOnCapabilities - seat {} keyboard capability unchanged (valid={})",
-              m_globalName,
-              !!m_keyboard);
-  }
-
-  if (HandleCapabilityChange(caps,
-                             wayland::seat_capability::pointer,
-                             GetName(),
-                             "pointer",
-                             m_pointer,
-                             std::bind(&wayland::seat_t::get_pointer, m_seat)))
-  {
-    CLog::Log(LOGDEBUG,
-              "CSeat::HandleOnCapabilities - seat {} gained pointer capability, installing handlers",
-              m_globalName);
     HandlePointerCapability();
   }
-  else
+  if (HandleCapabilityChange(caps, wayland::seat_capability::touch, GetName(), "touch", m_touch, std::bind(&wayland::seat_t::get_touch, m_seat)))
   {
-    CLog::Log(LOGDEBUG,
-              "CSeat::HandleOnCapabilities - seat {} pointer capability unchanged (valid={})",
-              m_globalName,
-              !!m_pointer);
-  }
-
-  if (HandleCapabilityChange(caps,
-                             wayland::seat_capability::touch,
-                             GetName(),
-                             "touch",
-                             m_touch,
-                             std::bind(&wayland::seat_t::get_touch, m_seat)))
-  {
-    CLog::Log(LOGDEBUG,
-              "CSeat::HandleOnCapabilities - seat {} gained touch capability, installing handlers",
-              m_globalName);
     HandleTouchCapability();
-  }
-  else
-  {
-    CLog::Log(LOGDEBUG,
-              "CSeat::HandleOnCapabilities - seat {} touch capability unchanged (valid={})",
-              m_globalName,
-              !!m_touch);
   }
 }
 
@@ -234,15 +142,8 @@ void CSeat::SetCursor(std::uint32_t serial, wayland::surface_t const &surface, s
 
 void CSeat::HandleKeyboardCapability()
 {
-  CLog::Log(LOGDEBUG, "CSeat: HandleKeyboardCapability called for seat {} ({}), setting up event handlers", 
-            m_globalName, GetName());
-  CLog::Log(LOGDEBUG, "CSeat: m_keyboard valid: {}, handler count: {}", 
-            !!m_keyboard, m_rawKeyboardHandlers.size());
-  
   m_keyboard.on_keymap() = [this](wayland::keyboard_keymap_format format, int fd, std::uint32_t size)
   {
-    CLog::Log(LOGDEBUG, "CSeat: Received keymap for seat {}, size={}, handlers={}", 
-              m_globalName, size, m_rawKeyboardHandlers.size());
     KODI::UTILS::POSIX::CFileHandle fdGuard{fd};
     KODI::UTILS::POSIX::CMmap mmap{nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0};
     std::string keymap{static_cast<const char*> (mmap.Data()), size};
@@ -253,15 +154,12 @@ void CSeat::HandleKeyboardCapability()
   };
   m_keyboard.on_enter() = [this](std::uint32_t serial, const wayland::surface_t& surface,
                                  const wayland::array_t& keys) {
-    CLog::Log(LOGDEBUG, "CSeat: Keyboard enter for seat {}, handlers={}", 
-              m_globalName, m_rawKeyboardHandlers.size());
     for (auto handler : m_rawKeyboardHandlers)
     {
       handler->OnKeyboardEnter(this, serial, surface, keys);
     }
   };
   m_keyboard.on_leave() = [this](std::uint32_t serial, const wayland::surface_t& surface) {
-    CLog::Log(LOGDEBUG, "CSeat: Keyboard leave for seat {}", m_globalName);
     for (auto handler : m_rawKeyboardHandlers)
     {
       handler->OnKeyboardLeave(this, serial, surface);
@@ -269,8 +167,6 @@ void CSeat::HandleKeyboardCapability()
   };
   m_keyboard.on_key() = [this](std::uint32_t serial, std::uint32_t time, std::uint32_t key, wayland::keyboard_key_state state)
   {
-    CLog::Log(LOGDEBUG, "CSeat: Keyboard key event for seat {}, key={}, handlers={}", 
-              m_globalName, key, m_rawKeyboardHandlers.size());
     for (auto handler : m_rawKeyboardHandlers)
     {
       handler->OnKeyboardKey(this, serial, time, key, state);
@@ -284,7 +180,6 @@ void CSeat::HandleKeyboardCapability()
     }
   };
   InstallKeyboardRepeatInfo();
-  CLog::Log(LOGDEBUG, "CSeat: Keyboard capability setup complete for seat {}", m_globalName);
 }
 
 void CSeat::InstallKeyboardRepeatInfo()

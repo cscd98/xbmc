@@ -11,6 +11,7 @@
 #include "platform/linux/WebOSTVPlatformConfig.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "ServiceBroker.h"
 
 CVideoPlayerVideoWebOS::CVideoPlayerVideoWebOS(CMediaPipelineWebOS& mediaPipeline,
                                                CProcessInfo& processInfo)

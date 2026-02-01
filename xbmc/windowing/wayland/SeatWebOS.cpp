@@ -8,29 +8,8 @@
 
 #include "SeatWebOS.h"
 
-#include "utils/log.h"
-
 namespace KODI::WINDOWING::WAYLAND
 {
-
-CSeatWebOS::CSeatWebOS(std::uint32_t globalName,
-                       wayland::seat_t const& seat,
-                       CConnection& connection)
-  : CSeat(globalName, seat, connection)
-{
-  CLog::Log(LOGDEBUG, "CSeatWebOS: Forcing immediate capability bind for seat {}", globalName);
-
-  GetKeyboardProxy() = GetSeatProxy().get_keyboard();
-  HandleKeyboardCapability();   // still private, so expose a wrapper if needed
-
-  GetPointerProxy() = GetSeatProxy().get_pointer();
-  HandlePointerCapability();
-
-  GetTouchProxy() = GetSeatProxy().get_touch();
-  HandleTouchCapability();
-
-  CLog::Log(LOGDEBUG, "CSeatWebOS: Seat {} forced capabilities bound", globalName);
-}
 
 void CSeatWebOS::SetCursor(std::uint32_t serial,
                            wayland::surface_t const& surface,

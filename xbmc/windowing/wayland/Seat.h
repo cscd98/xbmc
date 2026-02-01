@@ -180,21 +180,14 @@ public:
 protected:
   virtual void InstallKeyboardRepeatInfo();
 
-  wayland::keyboard_t& GetKeyboardProxy() { return m_keyboard; }
-  wayland::pointer_t& GetPointerProxy() { return m_pointer; }
-  wayland::touch_t& GetTouchProxy() { return m_touch; }
-  wayland::seat_t& GetSeatProxy() { return m_seat; }
-
-  void HandlePointerCapability();
-  void HandleKeyboardCapability();
-  void HandleTouchCapability();
-
 private:
   CSeat(CSeat const& other) = delete;
   CSeat& operator=(CSeat const& other) = delete;
 
   void HandleOnCapabilities(const wayland::seat_capability& caps);
-
+  void HandlePointerCapability();
+  void HandleKeyboardCapability();
+  void HandleTouchCapability();
 
   std::uint32_t m_globalName;
   std::string m_name{"<unknown>"};
