@@ -1,3 +1,5 @@
+option(WEBOS_LEGACY "Enable legacy webOS compatibility mode" OFF)
+
 include(${CMAKE_SOURCE_DIR}/cmake/platform/${CORE_SYSTEM_NAME}/wayland.cmake)
 
 # add wayland as platform, as we require it.
@@ -12,3 +14,7 @@ set(PLATFORM_OPTIONAL_DEPS_EXCLUDE CEC)
 set(ENABLE_PULSEAUDIO OFF CACHE BOOL "" FORCE)
 set(TARGET_WEBOS TRUE)
 set(PREFER_TOOLCHAIN_PATH ${TOOLCHAIN}/${HOST}/sysroot)
+
+if(WEBOS_LEGACY)
+  list(APPEND ARCH_DEFINES -DWEBOS_LEGACY)
+endif()

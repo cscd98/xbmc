@@ -37,8 +37,12 @@ set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
 set(APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/lib/libatomic.so.1
                         ${TOOLCHAIN}/${HOST}/sysroot/lib/libcrypt.so.1
                         ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libffi.so.8
-                        ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0)
-                        #${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
+                        ${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
+
+if(WEBOS_LEGACY)
+  set(APP_TOOLCHAIN_PRELOAD_FILES ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0)
+endif()
+
 set(BIN_ADDONS_DIR ${DEPENDS_PATH}/addons)
 
 file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "
@@ -62,6 +66,11 @@ file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "
     file(INSTALL ${BIN_ADDONS_DIR} DESTINATION ${APP_PACKAGE_DIR})
   endif()
 ")
+
+if(APP_TOOLCHAIN_PRELOAD_FILES)
+  file(APPEND ${CMAKE_BINARY_DIR}/install.cmake
+    "  file(INSTALL ${APP_TOOLCHAIN_PRELOAD_FILES} DESTINATION ${APP_PACKAGE_DIR}/preload-lib FOLLOW_SYMLINK_CHAIN)\n")
+endif()
 
 # Copy files to the location expected by the webOS packaging scripts.
 add_custom_target(bundle
