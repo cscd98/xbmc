@@ -60,26 +60,19 @@ void CVideoPlayerWebOS::CreatePlayers()
       m_mediaPipelineWebOS = std::make_unique<CMediaPipelineWebOS>(
           *m_processInfo, m_renderManager, m_clock, m_messenger, m_overlayContainer, hasAudio);
 
-          CLog::LogF(LOGDEBUG, "creating m_VideoPlayerVideo");
-
       m_VideoPlayerVideo =
           std::make_unique<CVideoPlayerVideoWebOS>(*m_mediaPipelineWebOS, *m_processInfo);
 
-        CLog::LogF(LOGDEBUG, "creating m_VideoPlayerAudio");
       m_VideoPlayerAudio =
           std::make_unique<CVideoPlayerAudioWebOS>(*m_mediaPipelineWebOS, *m_processInfo);
 
-          CLog::LogF(LOGDEBUG, "setting EnableSubtitle");
       m_VideoPlayerVideo->EnableSubtitle(subtitlesEnabled);
 
-      CLog::LogF(LOGDEBUG, "setting SetSubtitleDelay");
       m_VideoPlayerVideo->SetSubtitleDelay(subtitleDelay);
     }
   }
   else if (m_mediaPipelineWebOS || (!m_VideoPlayerVideo && !m_VideoPlayerAudio))
   {
-    CLog::LogF(LOGDEBUG, "creating (m_mediaPipelineWebOS || (!m_VideoPlayerVideo && !m_VideoPlayerAudio))");
-
     m_mediaPipelineWebOS = nullptr;
     m_VideoPlayerVideo = std::make_unique<CVideoPlayerVideo>(
         &m_clock, &m_overlayContainer, m_messenger, m_renderManager, *m_processInfo,
@@ -89,29 +82,13 @@ void CVideoPlayerWebOS::CreatePlayers()
   }
 
   if (m_players_created)
-  {
-    CLog::LogF(LOGDEBUG, "finished m_players_created");
     return;
-  }
-
-  CLog::LogF(LOGDEBUG, "creating m_VideoPlayerSubtitle");
 
   m_VideoPlayerSubtitle =
       std::make_unique<CVideoPlayerSubtitle>(&m_overlayContainer, *m_processInfo);
-
-      CLog::LogF(LOGDEBUG, "creating m_VideoPlayerTeletext");
-
   m_VideoPlayerTeletext = std::make_unique<CDVDTeletextData>(*m_processInfo);
-
-  CLog::LogF(LOGDEBUG, "creating m_VideoPlayerRadioRDS");
-
   m_VideoPlayerRadioRDS = std::make_unique<CDVDRadioRDSData>(*m_processInfo);
-
-  CLog::LogF(LOGDEBUG, "creating m_VideoPlayerAudioID3");
-
   m_VideoPlayerAudioID3 = std::make_unique<CVideoPlayerAudioID3>(*m_processInfo);
-
-  CLog::LogF(LOGDEBUG, "finished creating starfish pipeline");
   m_players_created = true;
 }
 

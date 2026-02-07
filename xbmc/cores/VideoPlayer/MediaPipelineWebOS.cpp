@@ -58,9 +58,6 @@
 #include <player-factory/customplayer.hpp>
 #include <starfish-media-pipeline/StarfishMediaAPIs.h>
 
-#include <cpptrace/cpptrace.hpp>
-#include <cpptrace/from_current.hpp>
-
 extern "C"
 {
 #include <libavcodec/defs.h>
@@ -298,8 +295,6 @@ bool CMediaPipelineWebOS::Supports(const AVCodecID codec, const int profile, con
 void CMediaPipelineWebOS::AcbCallback(
     long acbId, long taskId, long eventType, long appState, long playState, const char* reply)
 {
-  CLog::LogF(LOGDEBUG, "AcbCallback");
-
   CLog::LogF(LOGDEBUG, "acbId={}, taskId={}, eventType={}, appState={}, playState={}, reply={}",
              acbId, taskId, eventType, appState, playState, reply ? reply : "<null>");
 }
@@ -751,30 +746,11 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
     CLog::LogF(LOGERROR, "notifyForeground failed");
   CLog::LogF(LOGDEBUG, "Sending Load payload {}", payload);
 
-  cpptrace::try_catch(
-    [&]
-    {
-      if (!m_mediaAPIs->Load(payload.c_str(), &CMediaPipelineWebOS::PlayerCallback, this))
-      {
-        CLog::LogF(LOGERROR, "Load failed");
-        m_messageQueueParent.Put(std::make_shared<CDVDMsg>(CDVDMsg::PLAYER_ABORT));
-        throw std::runtime_error("Load failed");
-      }
-    },
-    [&] (const std::runtime_error& e) {
-      auto trace = cpptrace::from_current_exception();
-      CLog::Log(LOGDEBUG, "Load - Stack runtime trace:\n{}", trace.to_string());
-    },
-    [&] (const std::exception& e) {
-      auto trace = cpptrace::from_current_exception();
-      CLog::Log(LOGDEBUG, "Load terminating with exception: {}", e.what());
-      CLog::Log(LOGDEBUG, "Load - Stack trace:\n{}", trace.to_string());
-    },
-    [&] () { // serves the same role as `catch(...)`, an any exception handler
-      auto trace = cpptrace::from_current_exception();
-      CLog::Log(LOGDEBUG, "Load - Unknown exception trace:\n{}", trace.to_string());
-    }
-  );
+  if (!m_mediaAPIs->Load(payload.c_str(), &CMediaPipelineWebOS::PlayerCallback, this))
+  {
+    CLog::LogF(LOGERROR, "Load failed");
+    m_messageQueueParent.Put(std::make_shared<CDVDMsg>(CDVDMsg::PLAYER_ABORT));
+  }
 
   SetHDR(videoHint);
 
@@ -851,9 +827,6 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
 
 void CMediaPipelineWebOS::Unload(const bool sync)
 {
-
-  CLog::LogF(LOGDEBUG, "Unload");
-
   CThread::StopThread(true);
   if (m_audioThread.joinable())
     m_audioThread.join();

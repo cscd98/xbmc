@@ -735,6 +735,7 @@ std::string CSysInfo::GetOsVersion(void)
   }
 #elif defined(TARGET_LINUX)
   osVersion = getValueFromOs_release("VERSION_ID");
+
   if (osVersion.empty())
     osVersion = getValueFromLsb_release(lsb_rel_release);
 #endif // defined(TARGET_LINUX)
@@ -833,7 +834,6 @@ std::string CSysInfo::GetOsPrettyNameWithVersion(void)
 
   if (osNameVer.find(GetOsVersion()) == std::string::npos)
     osNameVer += " " + GetOsVersion();
-  
 #endif // defined(TARGET_LINUX)
 
   if (osNameVer.empty())

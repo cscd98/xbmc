@@ -24,12 +24,6 @@ set(WEBOS_ROOTFS ${TOOLCHAIN}/${HOST}/sysroot)
 set(WEBOS_LD_LIBRARY_PATH ${WEBOS_USERLAND_LIBS}:${APP_PACKAGE_DIR}/lib)
 set(VERIFY_EXE ${CMAKE_SOURCE_DIR}/tools/webOS/verify-symbols.sh)
 
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-  set(_build_suffix "release")
-else()
-  set(_build_suffix "debug")
-endif()
-
 set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
                      ${CMAKE_BINARY_DIR}/media
                      ${CMAKE_BINARY_DIR}/system
@@ -41,8 +35,8 @@ set(APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/lib/libatomic.so.1
 if(WEBOS_LEGACY)
   list(APPEND APP_TOOLCHAIN_FILES
     ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libffi.so.8)
-    set(APP_TOOLCHAIN_PRELOAD_FILES
-      ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0)
+  set(APP_TOOLCHAIN_PRELOAD_FILES
+    ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0)
 endif()
 
 set(BIN_ADDONS_DIR ${DEPENDS_PATH}/addons)
