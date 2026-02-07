@@ -67,30 +67,48 @@ std::string CPlatformWebOS::GetHomePath()
   return path.parent_path().string();
 }
 
-void PreloadWaylandClientIfNeeded(const std::string& homePath)
+void RelocateWaylandClientIfNeeded(const std::string& homePath)
 {
   if (WebOSTVPlatformConfig::GetWebOSVersion() <= 3)
   {
-    std::string libPath = homePath + "/preload-lib/libwayland-client.so.0";
+    std::filesystem::path libDir = homePath + "/lib";
+    std::filesystem::path preloadDir = homePath + "/preload-lib2";
 
-    CLog::Log(LOGDEBUG, "Preloading libwayland-client: {}", libPath);
+    std::error_code ec;
+    std::filesystem::create_directories(preloadDir, ec);
 
-    printf("preloading %s\n", libPath.c_str());
-    fflush(stdout);
-
-    void* handle = dlopen(libPath.c_str(), RTLD_GLOBAL | RTLD_NOW);
-    if (!handle)
+    for (const auto& entry : std::filesystem::directory_iterator(libDir))
     {
-      printf("preloaded failed %s\n", libPath.c_str());
-    fflush(stdout);
-      CLog::Log(LOGERROR, "dlopen failed for %s: %s", libPath.c_str(), dlerror());
-    }
-    else
-    {
-          printf("preloaded %s\n", libPath.c_str());
-    fflush(stdout);
-
-      CLog::Log(LOGINFO, "Preloaded %s for webOS <= 3", libPath.c_str());
+      auto fname = entry.path().filename().string();
+      if (fname.find("libwayland-client.so") == 0)
+      {
+        auto dest = preloadDir / fname;
+        try
+        {
+          // Try to move first
+          std::filesystem::rename(entry.path(), dest, ec);
+          if (ec)
+          {
+            ec.clear();
+            // If rename fails (e.g. cross‑filesystem), copy instead
+            std::filesystem::copy_file(entry.path(), dest,
+                                       std::filesystem::copy_options::overwrite_existing,
+                                       ec);
+            if (ec)
+              CLog::Log(LOGERROR, "Failed to copy %s: %s", fname.c_str(), ec.message().c_str());
+            else
+              CLog::Log(LOGINFO, "Copied %s into preload-lib", fname.c_str());
+          }
+          else
+          {
+            CLog::Log(LOGINFO, "Moved %s into preload-lib", fname.c_str());
+          }
+        }
+        catch (const std::exception& ex)
+        {
+          CLog::Log(LOGERROR, "Exception while relocating %s: %s", fname.c_str(), ex.what());
+        }
+      }
     }
   }
 }
@@ -122,7 +140,7 @@ bool CPlatformWebOS::InitStageOne()
   if  (WebOSTVPlatformConfig::GetWebOSVersion() >= 4)
     setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/lib/gst-plugin-scanner").c_str(), 1);
 
-  PreloadWaylandClientIfNeeded(HOME);
+  RelocateWaylandClientIfNeeded(HOME);
 
   return CPlatformLinux::InitStageOne();
 }

@@ -66,7 +66,7 @@ file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "
 
 if(APP_TOOLCHAIN_PRELOAD_FILES)
   file(APPEND ${CMAKE_BINARY_DIR}/install.cmake
-    "  file(INSTALL ${APP_TOOLCHAIN_PRELOAD_FILES} DESTINATION ${APP_PACKAGE_DIR}/preload-lib FOLLOW_SYMLINK_CHAIN)\n")
+    "  file(INSTALL ${APP_TOOLCHAIN_PRELOAD_FILES} DESTINATION ${APP_PACKAGE_DIR}/lib FOLLOW_SYMLINK_CHAIN)\n")
 endif()
 
 # Copy files to the location expected by the webOS packaging scripts.
