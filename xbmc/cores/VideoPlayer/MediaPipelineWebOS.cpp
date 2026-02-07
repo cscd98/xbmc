@@ -622,21 +622,13 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   using namespace KODI::WINDOWING::WAYLAND;
   const auto winSystem = dynamic_cast<CWinSystemWaylandWebOS*>(CServiceBroker::GetWinSystem());
   if (winSystem->SupportsExportedWindow())
-  {
-    CLog::LogF(LOGDEBUG, "Setting up exported window for video output");
     p["option"]["windowId"] = winSystem->GetExportedWindowName(); // N
-  }
   else
   {
-    CLog::LogF(LOGDEBUG, "Setting up AcbHandle for video buffer");
-
-    p["option"]["windowId"] = "";
-
     auto buffer = static_cast<CStarfishVideoBuffer*>(m_picture.videoBuffer);
     const std::unique_ptr<AcbHandle>& acb = buffer->CreateAcbHandle();
     if (acb->Id())
     {
-      CLog::LogF(LOGDEBUG, "Initializing AcbHandle with id {}", acb->Id());
       if (!AcbAPI_initialize(acb->Id(), PLAYER_TYPE_MSE, getenv("APPID"), &AcbCallback))
       {
         CLog::LogF(LOGERROR, "AcbAPI_initialize failed for AcbHandle id {}", acb->Id());
@@ -676,18 +668,18 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   contents["format"] = "RAW";
   p["mediaTransportType"] = "BUFFERSTREAM";
   contents["provider"] = CCompileInfo::GetPackage();
-  //p["option"]["transmission"]["contentsType"] = "LIVE"; // N
-  //p["option"]["transmission"]["trickType"] = "client-side"; // N
-  p["option"]["seekMode"] = "late_Iframe"; //"keep-rate"; // N late_Iframe
-  //p["option"]["useDroppedFrameEvent"] = true; /// N
+  p["option"]["transmission"]["contentsType"] = "LIVE"; // N
+  p["option"]["transmission"]["trickType"] = "client-side"; // N
+  p["option"]["seekMode"] = "keep-rate"; //"keep-rate"; // N late_Iframe
+  p["option"]["useDroppedFrameEvent"] = true; /// N
   
-  //p["option"]["externalStreamingInfo"]["streamQualityInfo"] = true; // Y
-  //p["option"]["externalStreamingInfo"]["streamQualityInfoNonFlushable"] = true; // Y
-  //p["option"]["externalStreamingInfo"]["streamQualityInfoCorruptedFrame"] = true; // Y
+  p["option"]["externalStreamingInfo"]["streamQualityInfo"] = true; // Y
+  p["option"]["externalStreamingInfo"]["streamQualityInfoNonFlushable"] = true; // Y
+  p["option"]["externalStreamingInfo"]["streamQualityInfoCorruptedFrame"] = true; // Y
 
   CVariant& esInfo = contents["esInfo"];
   esInfo["pauseAtDecodeTime"] = true;
-  //esInfo["seperatedPTS"] = true; // N
+  esInfo["seperatedPTS"] = true; // N
   esInfo["ptsToDecode"] = m_pts.load().count();
   esInfo["videoWidth"] = videoHint.width;
   esInfo["videoHeight"] = videoHint.height;
@@ -697,7 +689,7 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
     esInfo["videoFpsScale"] = videoHint.fpsscale;
   }
 
-  /*CVariant& bufferingCtrInfo = p["option"]["externalStreamingInfo"]["bufferingCtrInfo"];
+  CVariant& bufferingCtrInfo = p["option"]["externalStreamingInfo"]["bufferingCtrInfo"];
   bufferingCtrInfo["preBufferByte"] = PRE_BUFFER_BYTES;
   bufferingCtrInfo["bufferMinLevel"] = MIN_BUFFER_LEVEL; // N
   bufferingCtrInfo["bufferMaxLevel"] = MAX_BUFFER_LEVEL; // N
@@ -706,7 +698,7 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   bufferingCtrInfo["srcBufferLevelVideo"]["maximum"] = MAX_SRC_BUFFER_LEVEL_VIDEO;
   bufferingCtrInfo["qBufferLevelAudio"] = MAX_QUEUE_BUFFER_LEVEL;
   bufferingCtrInfo["srcBufferLevelAudio"]["minimum"] = MIN_SRC_BUFFER_LEVEL_AUDIO;
-  bufferingCtrInfo["srcBufferLevelAudio"]["maximum"] = MAX_SRC_BUFFER_LEVEL_AUDIO;*/
+  bufferingCtrInfo["srcBufferLevelAudio"]["maximum"] = MAX_SRC_BUFFER_LEVEL_AUDIO;
 
   int32_t maxWidth = 0;
   int32_t maxHeight = 0;
@@ -729,10 +721,10 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
 
   CLog::LogF(LOGDEBUG, "Max video resolution: {}x{} @ {}fps", maxWidth, maxHeight, maxFramerate);
 
-  //p["option"]["adaptiveStreaming"]["adaptiveResolution"] = true; // Y but below is N
-  //p["option"]["adaptiveStreaming"]["maxWidth"] = maxWidth;
-  //p["option"]["adaptiveStreaming"]["maxHeight"] = maxHeight;
-  //p["option"]["adaptiveStreaming"]["maxFrameRate"] = maxFramerate;
+  p["option"]["adaptiveStreaming"]["adaptiveResolution"] = true; // Y but below is N
+  p["option"]["adaptiveStreaming"]["maxWidth"] = maxWidth;
+  p["option"]["adaptiveStreaming"]["maxHeight"] = maxHeight;
+  p["option"]["adaptiveStreaming"]["maxFrameRate"] = maxFramerate;
 
   p["option"]["lowDelayMode"] = true;
   p["option"]["queryPosition"] = true;
@@ -954,8 +946,6 @@ std::string CMediaPipelineWebOS::SetupAudio(CDVDStreamInfo& audioHint, CVariant&
 
 void CMediaPipelineWebOS::SetupBitstreamConverter(CDVDStreamInfo& hint)
 {
-  CLog::LogF(LOGDEBUG, "Setting up bitstream converter for codec {}", hint.codec);
-
   const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
   const bool convertDovi =
       hint.dovi.el_present_flag || settings->GetBool(CSettings::SETTING_VIDEOPLAYER_CONVERTDOVI);
@@ -1015,8 +1005,6 @@ void CMediaPipelineWebOS::SetupBitstreamConverter(CDVDStreamInfo& hint)
       }
     }
   }
-
-  CLog::LogF(LOGDEBUG, "Bitstream converter setup complete");
 }
 
 void CMediaPipelineWebOS::SetHDR(const CDVDStreamInfo& hint) const
@@ -1127,7 +1115,6 @@ void CMediaPipelineWebOS::FeedAudioData(const std::shared_ptr<CDVDMsg>& msg)
   std::string result;
   if (m_useLegacy && m_mediaAPIs)
   {
-    CLog::LogF(LOGDEBUG, "Feed legacy! (audio)");
     auto legacyBuf = FeedLegacy(m_mediaAPIs.get(), json_cstr);
     if (legacyBuf && legacyBuf.get())
       result = std::string(legacyBuf.get());

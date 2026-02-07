@@ -24,6 +24,7 @@ set(WEBOS_ROOTFS ${TOOLCHAIN}/${HOST}/sysroot)
 set(WEBOS_LD_LIBRARY_PATH ${WEBOS_USERLAND_LIBS}:${APP_PACKAGE_DIR}/lib)
 set(VERIFY_EXE ${CMAKE_SOURCE_DIR}/tools/webOS/verify-symbols.sh)
 
+
 set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
                      ${CMAKE_BINARY_DIR}/media
                      ${CMAKE_BINARY_DIR}/system

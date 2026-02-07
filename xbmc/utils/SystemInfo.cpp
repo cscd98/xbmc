@@ -735,10 +735,10 @@ std::string CSysInfo::GetOsVersion(void)
   }
 #elif defined(TARGET_LINUX)
   osVersion = getValueFromOs_release("VERSION_ID");
-
   if (osVersion.empty())
     osVersion = getValueFromLsb_release(lsb_rel_release);
 #endif // defined(TARGET_LINUX)
+
   if (osVersion.empty())
     osVersion = "0.0";
 

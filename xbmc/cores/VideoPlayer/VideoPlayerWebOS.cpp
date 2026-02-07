@@ -27,7 +27,6 @@ CVideoPlayerWebOS::~CVideoPlayerWebOS() = default;
 
 void CVideoPlayerWebOS::CreatePlayers()
 {
-  CLog::LogF(LOGDEBUG, "CreatePlayers");
   const auto canStarfish =
       std::ranges::any_of(m_SelectionStreams.Get(StreamType::VIDEO),
                           [](const auto& stream)
@@ -59,15 +58,11 @@ void CVideoPlayerWebOS::CreatePlayers()
     {
       m_mediaPipelineWebOS = std::make_unique<CMediaPipelineWebOS>(
           *m_processInfo, m_renderManager, m_clock, m_messenger, m_overlayContainer, hasAudio);
-
       m_VideoPlayerVideo =
           std::make_unique<CVideoPlayerVideoWebOS>(*m_mediaPipelineWebOS, *m_processInfo);
-
       m_VideoPlayerAudio =
           std::make_unique<CVideoPlayerAudioWebOS>(*m_mediaPipelineWebOS, *m_processInfo);
-
       m_VideoPlayerVideo->EnableSubtitle(subtitlesEnabled);
-
       m_VideoPlayerVideo->SetSubtitleDelay(subtitleDelay);
     }
   }

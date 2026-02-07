@@ -23,6 +23,7 @@
 #include <memory>
 
 #include <sys/resource.h>
+#include <dlfcn.h>
 
 constexpr const char* basePath = "/media/developer/temp/webosbrew/";
 
@@ -66,6 +67,34 @@ std::string CPlatformWebOS::GetHomePath()
   return path.parent_path().string();
 }
 
+void PreloadWaylandClientIfNeeded(const std::string& homePath)
+{
+  if (WebOSTVPlatformConfig::GetWebOSVersion() <= 3)
+  {
+    std::string libPath = homePath + "/preload-lib/libwayland-client.so.0";
+
+    CLog::Log(LOGDEBUG, "Preloading libwayland-client: {}", libPath);
+
+    printf("preloading %s\n", libPath.c_str());
+    fflush(stdout);
+
+    void* handle = dlopen(libPath.c_str(), RTLD_GLOBAL | RTLD_NOW);
+    if (!handle)
+    {
+      printf("preloaded failed %s\n", libPath.c_str());
+    fflush(stdout);
+      CLog::Log(LOGERROR, "dlopen failed for %s: %s", libPath.c_str(), dlerror());
+    }
+    else
+    {
+          printf("preloaded %s\n", libPath.c_str());
+    fflush(stdout);
+
+      CLog::Log(LOGINFO, "Preloaded %s for webOS <= 3", libPath.c_str());
+    }
+  }
+}
+
 bool CPlatformWebOS::InitStageOne()
 {
   // WebOS ipks run in a chroot like std::filesystem::current_pathenvironment
@@ -92,6 +121,8 @@ bool CPlatformWebOS::InitStageOne()
 
   if  (WebOSTVPlatformConfig::GetWebOSVersion() >= 4)
     setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/lib/gst-plugin-scanner").c_str(), 1);
+
+  PreloadWaylandClientIfNeeded(HOME);
 
   return CPlatformLinux::InitStageOne();
 }
