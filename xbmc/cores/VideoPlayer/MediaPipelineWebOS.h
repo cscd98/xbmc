@@ -78,7 +78,7 @@ public:
    * @param profile profile to check.
    * @return True if supported, false otherwise.
    */
-  static bool Supports(AVCodecID codec, int profile, unsigned int webOSVersion);
+  static bool Supports(AVCodecID codec, int profile);
 
   /**
    * @brief Flush all pending video messages.

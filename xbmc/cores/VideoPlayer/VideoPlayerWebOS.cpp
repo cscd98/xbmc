@@ -14,8 +14,6 @@
 #include "VideoPlayerVideoWebOS.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "utils/log.h"
-#include "platform/linux/WebOSTVPlatformConfig.h"
 
 #include <algorithm>
 
@@ -31,21 +29,15 @@ void CVideoPlayerWebOS::CreatePlayers()
       std::ranges::any_of(m_SelectionStreams.Get(StreamType::VIDEO),
                           [](const auto& stream)
                           {
-                            unsigned int version = WebOSTVPlatformConfig::GetWebOSVersion();
-
                             if (stream.codecId != AV_CODEC_ID_NONE)
-                              return CMediaPipelineWebOS::Supports(stream.codecId, stream.profile, version);
+                              return CMediaPipelineWebOS::Supports(stream.codecId, stream.profile);
                             const AVCodec* codec =
                                 avcodec_find_decoder_by_name(stream.codec.data());
                             if (!codec)
                               return false;
 
-                            return CMediaPipelineWebOS::Supports(codec->id, stream.profile, version);
+                            return CMediaPipelineWebOS::Supports(codec->id, stream.profile);
                           });
-
-  CLog::LogF(LOGDEBUG, "canStarfish {}", canStarfish);
-  CLog::LogF(LOGDEBUG, "use starfish decoder {}", CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-                         CSettings::SETTING_VIDEOPLAYER_USESTARFISHDECODER));
 
   if (canStarfish && CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                          CSettings::SETTING_VIDEOPLAYER_USESTARFISHDECODER))

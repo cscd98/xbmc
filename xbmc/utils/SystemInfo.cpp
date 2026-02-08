@@ -73,10 +73,6 @@ using namespace winrt::Windows::System::Profile;
 #include <linux/version.h>
 #endif
 
-#if defined(TARGET_WEBOS)
-#include "utils/JSONVariantParser.h"
-#endif
-
 #include <system_error>
 
 /* Expand macro before stringify */
