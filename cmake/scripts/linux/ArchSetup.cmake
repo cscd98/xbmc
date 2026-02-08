@@ -116,9 +116,9 @@ if(KODI_DEPENDSBUILD)
   set(CMAKE_INSTALL_RPATH "${DEPENDS_PATH}/lib")
   set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
-  if(WEBOS_LEGACY)
+  if(TARGET_WEBOS)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--disable-new-dtags")
-    list(APPEND CMAKE_INSTALL_RPATH "$ORIGIN/preload-lib2")
+    list(APPEND CMAKE_INSTALL_RPATH "$ORIGIN/preload-lib")
   endif()
 endif()
 

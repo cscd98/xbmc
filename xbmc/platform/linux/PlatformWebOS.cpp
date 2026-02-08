@@ -71,8 +71,8 @@ void RelocateWaylandClientIfNeeded(const std::string& homePath)
 {
   if (WebOSTVPlatformConfig::GetWebOSVersion() <= 3)
   {
-    std::filesystem::path libDir = homePath + "/lib";
-    std::filesystem::path preloadDir = homePath + "/preload-lib2";
+    std::filesystem::path libDir = homePath + "/staged-lib";
+    std::filesystem::path preloadDir = homePath + "/preload-lib";
 
     std::error_code ec;
     std::filesystem::create_directories(preloadDir, ec);

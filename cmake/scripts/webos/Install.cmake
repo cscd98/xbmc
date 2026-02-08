@@ -31,14 +31,11 @@ set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
                      ${CMAKE_BINARY_DIR}/userdata)
 set(APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/lib/libatomic.so.1
                         ${TOOLCHAIN}/${HOST}/sysroot/lib/libcrypt.so.1
+                        ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libffi.so.8
                         ${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
 
-if(WEBOS_LEGACY)
-  list(APPEND APP_TOOLCHAIN_FILES
-    ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libffi.so.8)
-  set(APP_TOOLCHAIN_PRELOAD_FILES
-    ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0)
-endif()
+set(APP_TOOLCHAIN_STAGED_FILES
+  ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0)
 
 set(BIN_ADDONS_DIR ${DEPENDS_PATH}/addons)
 
@@ -64,9 +61,9 @@ file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "
   endif()
 ")
 
-if(APP_TOOLCHAIN_PRELOAD_FILES)
+if(APP_TOOLCHAIN_STAGED_FILES)
   file(APPEND ${CMAKE_BINARY_DIR}/install.cmake
-    "  file(INSTALL ${APP_TOOLCHAIN_PRELOAD_FILES} DESTINATION ${APP_PACKAGE_DIR}/lib FOLLOW_SYMLINK_CHAIN)\n")
+    "  file(INSTALL ${APP_TOOLCHAIN_STAGED_FILES} DESTINATION ${APP_PACKAGE_DIR}/staged-lib FOLLOW_SYMLINK_CHAIN)\n")
 endif()
 
 # Copy files to the location expected by the webOS packaging scripts.

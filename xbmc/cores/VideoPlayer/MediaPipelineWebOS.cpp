@@ -717,9 +717,6 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   p["option"]["adaptiveStreaming"]["maxHeight"] = maxHeight;
   p["option"]["adaptiveStreaming"]["maxFrameRate"] = maxFramerate;
 
-  p["option"]["lowDelayMode"] = true;
-  p["option"]["queryPosition"] = true;
-
   CVariant payloadArgs;
   payloadArgs["args"] = CVariant(CVariant::VariantTypeArray);
   payloadArgs["args"].push_back(std::move(p));
