@@ -435,7 +435,7 @@ private:
   CDVDClock& m_clock;
   CDVDOverlayContainer& m_overlayContainer;
   bool m_hasAudio{true};
-  bool m_useLegacy{false};
+  bool m_useLegacyFeed{false};
 
   std::mutex m_audioInfoMutex;
   std::string m_audioInfo;

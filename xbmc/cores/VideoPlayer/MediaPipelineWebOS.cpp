@@ -195,12 +195,7 @@ CMediaPipelineWebOS::CMediaPipelineWebOS(CProcessInfo& processInfo,
   m_webOSVersion = WebOSTVPlatformConfig::GetWebOSVersion();
 
   if(m_webOSVersion < 4)
-  {
-    CLog::LogF(LOGDEBUG, "Using legacy media pipeline for webOS version {}", m_webOSVersion);
-    m_useLegacy = true;
-  }
-  else
-    CLog::LogF(LOGDEBUG, "Using modern media pipeline for webOS version {}", m_webOSVersion);
+    m_useLegacyFeed = true;
 
   if (WebOSTVPlatformConfig::SupportsDTS())
     ms_codecMap.emplace(AV_CODEC_ID_DTS, "DTS");
@@ -287,7 +282,7 @@ bool CMediaPipelineWebOS::Supports(const AVCodecID codec, const int profile)
     return false;
 
   const unsigned int version = WebOSTVPlatformConfig::GetWebOSVersion();
-  if (version <=3 && codec == AV_CODEC_ID_MP3)
+  if (version <= 3 && codec == AV_CODEC_ID_MP3)
     return false;
 
   return ms_codecMap.contains(codec);
@@ -707,8 +702,6 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
     maxFramerate = 60;
   }
 
-  CLog::LogF(LOGDEBUG, "Max video resolution: {}x{} @ {}fps", maxWidth, maxHeight, maxFramerate);
-
   p["option"]["adaptiveStreaming"]["adaptiveResolution"] = true; // Y but below is N
   p["option"]["adaptiveStreaming"]["maxWidth"] = maxWidth;
   p["option"]["adaptiveStreaming"]["maxHeight"] = maxHeight;
@@ -1064,8 +1057,7 @@ void CMediaPipelineWebOS::SetHDR(const CDVDStreamInfo& hint) const
 
   CLog::LogFC(LOGDEBUG, LOGVIDEO, "Setting HDR data payload {}", payload);
 
-  // TODO: use updateHdrInfo function in webOS < 5
-  if (m_webOSVersion >= 5 && !m_mediaAPIs->setHdrInfo(payload.c_str()))
+  if (m_webOSVersion >= 4 && !m_mediaAPIs->setHdrInfo(payload.c_str()))
     CLog::LogF(LOGERROR, "setHdrInfo failed");
 
   CLog::LogF(LOGDEBUG, "HDR info set complete");
@@ -1094,14 +1086,18 @@ void CMediaPipelineWebOS::FeedAudioData(const std::shared_ptr<CDVDMsg>& msg)
   const char* json_cstr = json.empty() ? "" : json.c_str();
 
   std::string result;
-  if (m_useLegacy && m_mediaAPIs)
+
+  if (m_mediaAPIs)
   {
-    auto legacyBuf = FeedLegacy(m_mediaAPIs.get(), json_cstr);
-    if (legacyBuf && legacyBuf.get())
-      result = std::string(legacyBuf.get());
+    if (m_useLegacyFeed)
+    {
+      auto legacyBuf = FeedLegacy(m_mediaAPIs.get(), json_cstr);
+      if (legacyBuf && legacyBuf.get())
+        result = std::string(legacyBuf.get());
+    }
+    else
+      result = m_mediaAPIs->Feed(json_cstr);
   }
-  else
-    result = m_mediaAPIs->Feed(json_cstr);
 
   if (result.find("Ok") != std::string::npos)
   {
@@ -1215,14 +1211,17 @@ void CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
     const char* json_cstr = json.empty() ? "" : json.c_str();
 
     std::string result;
-    if (m_useLegacy && m_mediaAPIs)
+    if (m_mediaAPIs)
     {
-      auto legacyBuf = FeedLegacy(m_mediaAPIs.get(), json_cstr);
-      if (legacyBuf && legacyBuf.get())
-        result = std::string(legacyBuf.get());
+      if (m_useLegacyFeed)
+      {
+        auto legacyBuf = FeedLegacy(m_mediaAPIs.get(), json_cstr);
+        if (legacyBuf && legacyBuf.get())
+          result = std::string(legacyBuf.get());
+      }
+      else
+        result = m_mediaAPIs->Feed(json_cstr);
     }
-    else
-      result = m_mediaAPIs->Feed(json_cstr);
 
     if (result.find("Ok") != std::string::npos)
     {
