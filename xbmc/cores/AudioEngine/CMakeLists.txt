@@ -63,6 +63,11 @@ if(TARGET ${APP_NAME_LC}::Alsa)
     list(APPEND SOURCES Sinks/alsa/ALSADeviceMonitor.cpp)
     list(APPEND HEADERS Sinks/alsa/ALSADeviceMonitor.h)
   endif()
+
+  if(TARGET_WEBOS)
+    list(APPEND SOURCES Sinks/alsa/AlsaBackport.cpp)
+    list(APPEND HEADERS Sinks/alsa/AlsaBackport.h)
+  endif()
 endif()
 
 if(TARGET ${APP_NAME_LC}::PulseAudio)
