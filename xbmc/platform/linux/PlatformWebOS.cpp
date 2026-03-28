@@ -35,10 +35,33 @@ std::string CPlatformWebOS::GetHomePath()
   std::error_code ec;
   std::filesystem::path path = std::filesystem::read_symlink(self, ec);
 
-  if (ec)
+  // If symlink read failed OR the resolved path is not writable
+  if (ec || access(path.parent_path().c_str(), W_OK) != 0)
   {
     const char* homeEnv = getenv("HOME");
-    return homeEnv ? std::string(homeEnv) : std::string("");
+    if (homeEnv && *homeEnv)
+    {
+      std::string homeStr(homeEnv);
+
+      // If HOME is not writable, try fallback
+      if (access(homeStr.c_str(), W_OK) != 0)
+      {
+        std::string fallback = std::string("/media/developer/temp/webosbrew/") + CCompileInfo::GetPackage();
+
+        printf("Using fallback HOME path: %s\n", fallback.c_str());
+        fflush(stdout);
+
+        std::error_code dir_ec;
+        if (std::filesystem::create_directories(fallback, dir_ec) && !dir_ec)
+        {
+          return fallback;
+        }
+      }
+
+      return homeStr;
+    }
+
+    return std::string("");
   }
 
   return path.parent_path().string();
