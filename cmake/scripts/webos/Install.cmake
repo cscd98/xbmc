@@ -29,8 +29,14 @@ set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
                      ${CMAKE_BINARY_DIR}/system
                      ${CMAKE_BINARY_DIR}/userdata)
 set(APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/lib/libatomic.so.1
-                        ${TOOLCHAIN}/${HOST}/sysroot/lib/libcrypt.so.1
                         ${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
+
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+    list(APPEND APP_TOOLCHAIN_FILES
+        "${TOOLCHAIN}/${HOST}/sysroot/lib/libcrypt.so.1"
+    )
+endif()
+
 set(BIN_ADDONS_DIR ${DEPENDS_PATH}/addons)
 
 file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "
