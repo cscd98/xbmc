@@ -403,13 +403,21 @@ case $host in
     #android builds are always cross
     cross_compiling="yes"
   ;;
-  arm-webos-linux-gnueabi|arm-starfish-linux-gnueabi)
-    meson_cpu="arm"
-    if test "x$use_cpu" = "xauto"; then
-      use_cpu="armeabi-v7a"
+  arm-webos-linux-gnueabi|aarch64-webos-linux-gnu|arm-starfish-linux-gnueabi)
+    if echo "$host" | grep -q aarch64; then
+      meson_cpu="aarch64"
+      if test "x$use_cpu" = "xauto"; then
+        use_cpu="aarch64"
+      fi
+    else
+      meson_cpu="arm"
+      platform_cflags="-mfloat-abi=softfp"
+      if test "x$use_cpu" = "xauto"; then
+        use_cpu="armeabi-v7a"
+      fi
     fi
     use_toolchain="${use_toolchain:-/usr}"
-    platform_cflags="-fPIC -DPIC -mcpu=cortex-a53 -mtune=cortex-a53 -mfloat-abi=softfp -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64"
+    platform_cflags+="-fPIC -DPIC -mcpu=cortex-a53 -mtune=cortex-a53 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64"
     platform_cxxflags="$platform_cflags -static-libstdc++"
     optimize_flags="-Os"
     platform_ldflags="-Wl,-rpath-link=$prefix/$deps_dir/lib"
