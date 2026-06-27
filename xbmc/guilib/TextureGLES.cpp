@@ -22,6 +22,10 @@
 
 #include <memory>
 
+#ifdef TARGET_WEBOS
+#include "platform/linux/WebOSTVPlatformConfig.h"
+#endif
+
 namespace
 {
 // clang-format off
@@ -185,6 +189,11 @@ CGLESTexture::CGLESTexture(unsigned int width, unsigned int height, XB_FMT forma
   unsigned int major, minor;
   CServiceBroker::GetRenderSystem()->GetRenderVersion(major, minor);
 #if defined(GL_ES_VERSION_3_0)
+#ifdef TARGET_WEBOS
+  if (WebOSTVPlatformConfig::GetWebOSVersion() <= 4)
+    m_isGLESVersion30orNewer = false;
+  else
+#endif
   m_isGLESVersion30orNewer = major >= 3;
 #endif
 }

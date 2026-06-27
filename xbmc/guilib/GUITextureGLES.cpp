@@ -20,6 +20,10 @@
 
 #include <cstddef>
 
+#ifdef TARGET_WEBOS
+#include "platform/linux/WebOSTVPlatformConfig.h"
+#endif
+
 void CGUITextureGLES::Register()
 {
   CGUITexture::Register(CGUITextureGLES::CreateTexture, CGUITextureGLES::DrawQuad);
@@ -38,6 +42,11 @@ CGUITextureGLES::CGUITextureGLES(
   m_renderSystem = dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
   unsigned int major, minor;
   m_renderSystem->GetRenderVersion(major, minor);
+#ifdef TARGET_WEBOS
+  if (WebOSTVPlatformConfig::GetWebOSVersion() <= 4)
+    m_isGLES20 = true;
+  else
+#endif
   m_isGLES20 = major == 2;
 }
 
