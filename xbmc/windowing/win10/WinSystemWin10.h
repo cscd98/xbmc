@@ -84,6 +84,8 @@ public:
   bool UseLimitedColor() override;
   float GetGuiSdrPeakLuminance() const override;
   bool HasSystemSdrPeakLuminance() override;
+  CHDRCapabilities GetDisplayHDRCapabilities() const override;
+  bool SetDolbyVisionOutput(bool enabled);
 
   // videosync
   std::unique_ptr<CVideoSync> GetVideoSync(CVideoReferenceClock* clock) override;
@@ -160,6 +162,7 @@ protected:
   DWORD m_uiThreadId{0};
   HDR_STATUS m_cachedHdrStatus{HDR_STATUS::HDR_UNSUPPORTED};
   bool m_cachedHasSystemSdrPeakLum{false};
+  bool m_dolbyVisionPreviousHdrState{false};
 };
 
 #pragma pack(pop)
