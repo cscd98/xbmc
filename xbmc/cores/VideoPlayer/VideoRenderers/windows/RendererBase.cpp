@@ -16,6 +16,10 @@
 #include "cores/VideoPlayer/Buffers/VideoBuffer.h"
 #include "rendering/dx/DirectXHelper.h"
 #include "rendering/dx/RenderContext.h"
+#include "settings/SettingUtils.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "settings/lib/Setting.h"
 #include "utils/MemUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
@@ -32,6 +36,7 @@ void CRenderBuffer::AppendPicture(const VideoPicture& picture)
   primaries = picture.color_primaries;
   color_space = picture.color_space;
   color_transfer = picture.color_transfer;
+  hdrType = picture.hdrType;
   full_range = picture.color_range == 1;
   bits = picture.colorBits;
   stereoMode = picture.stereoMode;
@@ -139,6 +144,9 @@ CRendererBase::CRendererBase(CVideoSettings& videoSettings)
 
 CRendererBase::~CRendererBase()
 {
+  if (m_DolbyVisionOutput)
+    DX::Windowing()->SetDolbyVisionOutput(false);
+
   // At playback stop restores Windows HDR state to previous state
   // Is not need set swap chain color space because toggling HDR re-creates swap chain
   if (m_AutoSwitchHDR)
@@ -585,6 +593,23 @@ DXGI_HDR_METADATA_HDR10 CRendererBase::GetDXGIHDR10MetaData(CRenderBuffer* rb)
 
 void CRendererBase::ProcessHDR(CRenderBuffer* rb)
 {
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  const auto allowedHdrFormats = std::dynamic_pointer_cast<CSettingList>(
+      settings->GetSetting(CSettings::SETTING_VIDEOPLAYER_ALLOWEDHDRFORMATS));
+  const bool allowDolbyVision = CSettingUtils::FindIntInList(
+      allowedHdrFormats, CSettings::VIDEOPLAYER_ALLOWED_HDR_TYPE_DOLBY_VISION);
+  const bool useDolbyVision = rb->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION &&
+                              allowDolbyVision &&
+                              DX::Windowing()->GetDisplayHDRCapabilities().SupportsDolbyVision();
+
+  if (useDolbyVision != m_DolbyVisionOutput &&
+      DX::Windowing()->SetDolbyVisionOutput(useDolbyVision))
+  {
+    m_DolbyVisionOutput = useDolbyVision;
+    if (useDolbyVision)
+      DX::Windowing()->SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+  }
+
   if (m_AutoSwitchHDR && rb->primaries == AVCOL_PRI_BT2020 &&
       (rb->color_transfer == AVCOL_TRC_SMPTE2084 || rb->color_transfer == AVCOL_TRC_ARIB_STD_B67) &&
       !DX::Windowing()->IsHDROutput())
