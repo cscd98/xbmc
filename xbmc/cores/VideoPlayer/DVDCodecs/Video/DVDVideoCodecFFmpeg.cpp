@@ -23,10 +23,13 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/CPUInfo.h"
+#include "utils/DolbyVisionRpu.h"
 #include "utils/StringUtils.h"
+#include "utils/SystemInfo.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 
+#include <iterator>
 #include <memory>
 #include <mutex>
 
@@ -327,6 +330,10 @@ CDVDVideoCodecFFmpeg::~CDVDVideoCodecFFmpeg()
 
 bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
 {
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  m_doviConverter.reset();
+#endif
+
   if (hints.cryptoSession)
   {
     CLog::Log(LOGERROR,"CDVDVideoCodecFFmpeg::Open() CryptoSessions unsupported!");
@@ -335,6 +342,36 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
 
   m_hints = hints;
   m_options = options;
+
+  const int doviProfile = hints.dovi.dv_profile;
+  m_exportDoviRpu = (doviProfile == 5 || doviProfile == 7 || doviProfile == 8 ||
+                     doviProfile == 10) &&
+                    m_processInfo.WantsDolbyVisionRpu();
+  m_av1DoviRpus.clear();
+
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  const bool convertDovi = hints.dovi.dv_profile == 7 &&
+                           settings->GetBool(CSettings::SETTING_VIDEOPLAYER_CONVERTDOVI);
+  const bool doviZeroLevel5 =
+      settings->GetBool(CSettings::SETTING_VIDEOPLAYER_DOVIZEROLEVEL5);
+
+  if (CSysInfo::GetWindowsDeviceFamily() == CSysInfo::Xbox && hints.codec == AV_CODEC_ID_HEVC &&
+      (convertDovi || doviZeroLevel5) && hints.extradata)
+  {
+    m_doviConverter = std::make_unique<CBitstreamConverter>();
+    if (m_doviConverter->Open(hints.codec, hints.extradata.GetData(),
+                              hints.extradata.GetSize(), true))
+    {
+      m_doviConverter->SetConvertDovi(convertDovi);
+      m_doviConverter->SetDoviZeroLevel5(doviZeroLevel5);
+      }
+    else
+    {
+      m_doviConverter.reset();
+    }
+  }
+#endif
 
   const AVCodec* pCodec = nullptr;
 
@@ -412,14 +449,22 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   m_pCodecContext->bits_per_coded_sample = hints.bitsperpixel;
   m_pCodecContext->bits_per_raw_sample = hints.bitdepth;
 
-  if (hints.extradata)
+  const uint8_t* extraData = hints.extradata.GetData();
+  int extraDataSize = hints.extradata.GetSize();
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  if (m_doviConverter && m_doviConverter->NeedConvert())
   {
-    m_pCodecContext->extradata =
-        (uint8_t*)av_mallocz(hints.extradata.GetSize() + AV_INPUT_BUFFER_PADDING_SIZE);
+    extraData = m_doviConverter->GetExtraData();
+    extraDataSize = m_doviConverter->GetExtraSize();
+  }
+#endif
+  if (extraData && extraDataSize > 0)
+  {
+    m_pCodecContext->extradata = (uint8_t*)av_mallocz(extraDataSize + AV_INPUT_BUFFER_PADDING_SIZE);
     if (m_pCodecContext->extradata)
     {
-      m_pCodecContext->extradata_size = hints.extradata.GetSize();
-      memcpy(m_pCodecContext->extradata, hints.extradata.GetData(), hints.extradata.GetSize());
+      m_pCodecContext->extradata_size = extraDataSize;
+      memcpy(m_pCodecContext->extradata, extraData, extraDataSize);
     }
   }
 
@@ -484,6 +529,10 @@ void CDVDVideoCodecFFmpeg::Dispose()
   av_frame_free(&m_pDecodedFrame);
   av_frame_free(&m_pFilterFrame);
   avcodec_free_context(&m_pCodecContext);
+
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  m_doviConverter.reset();
+#endif
 
   if (m_pHardware)
   {
@@ -612,6 +661,14 @@ bool CDVDVideoCodecFFmpeg::AddData(const DemuxPacket &packet)
 
   avpkt->data = packet.pData;
   avpkt->size = packet.iSize;
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  if (m_doviConverter && m_doviConverter->Convert(packet.pData, packet.iSize) &&
+      m_doviConverter->GetConvertSize() > 0)
+  {
+    avpkt->data = m_doviConverter->GetConvertBuffer();
+    avpkt->size = m_doviConverter->GetConvertSize();
+  }
+#endif
   avpkt->dts = (packet.dts == DVD_NOPTS_VALUE)
                    ? AV_NOPTS_VALUE
                    : static_cast<int64_t>(packet.dts / DVD_TIME_BASE * AV_TIME_BASE);
@@ -620,6 +677,19 @@ bool CDVDVideoCodecFFmpeg::AddData(const DemuxPacket &packet)
                    : static_cast<int64_t>(packet.pts / DVD_TIME_BASE * AV_TIME_BASE);
   avpkt->side_data = static_cast<AVPacketSideData*>(packet.pSideData);
   avpkt->side_data_elems = packet.iSideDataElems;
+
+  // FFmpeg doesn't export the AV1 RPU, so keep it for the frame with the same pts
+  if (m_exportDoviRpu && m_hints.codec == AV_CODEC_ID_AV1 && avpkt->pts != AV_NOPTS_VALUE)
+  {
+    std::vector<uint8_t> rpu =
+        KODI::UTILS::DOLBYVISION::ExtractAv1Rpu(packet.pData, packet.iSize);
+    if (!rpu.empty())
+    {
+      m_av1DoviRpus[avpkt->pts] = std::move(rpu);
+      if (m_av1DoviRpus.size() > 64)
+        m_av1DoviRpus.erase(m_av1DoviRpus.begin());
+    }
+  }
 
   int ret = avcodec_send_packet(m_pCodecContext, avpkt);
 
@@ -971,6 +1041,12 @@ void CDVDVideoCodecFFmpeg::Reset()
   if (m_pHardware)
     m_pHardware->Reset();
 
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  if (m_doviConverter)
+    m_doviConverter->ResetStartDecode();
+#endif
+  m_av1DoviRpus.clear();
+
   m_filters = "";
   FilterClose();
   m_dropCtrl.Reset(false);
@@ -1153,6 +1229,32 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
   {
     pVideoPicture->lightMetadata = *m_hints.contentLightMetadata.get();
     pVideoPicture->hasLightMetadata = true;
+  }
+
+  pVideoPicture->doviRpu.reset();
+  if (m_exportDoviRpu)
+  {
+    std::vector<uint8_t> rpu;
+    if (m_hints.codec == AV_CODEC_ID_AV1)
+    {
+      const auto it = m_av1DoviRpus.find(m_pFrame->pts);
+      if (it != m_av1DoviRpus.end())
+      {
+        rpu = std::move(it->second);
+        m_av1DoviRpus.erase(m_av1DoviRpus.begin(), std::next(it));
+      }
+    }
+    else
+    {
+      sd = av_frame_get_side_data(m_pFrame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
+      if (sd && sd->size > 0)
+        rpu = KODI::UTILS::DOLBYVISION::HevcRpuToNal(sd->data, sd->size);
+    }
+
+    if (!rpu.empty())
+      pVideoPicture->doviRpu = std::make_shared<DoviRpu>(
+          DoviRpu{m_hints.dovi.dv_profile, m_hints.dovi.dv_bl_signal_compatibility_id,
+                  std::move(rpu)});
   }
 
   if (pVideoPicture->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION)

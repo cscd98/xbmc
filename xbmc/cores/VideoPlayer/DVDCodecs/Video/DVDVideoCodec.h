@@ -21,6 +21,7 @@ extern "C" {
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
 
 class CSetting;
 
@@ -31,6 +32,15 @@ class CSetting;
 #define FRAME_TYPE_B     3
 #define FRAME_TYPE_D     4
 
+
+// Dolby Vision RPU for UWP/Xbox Dolby Vision renderer effect
+struct DoviRpu
+{
+  int profile = 0;
+  int compatibilityId = 0;
+  // HEVC NAL header
+  std::vector<uint8_t> data;
+};
 
 // should be entirely filled by all codecs
 struct VideoPicture
@@ -68,6 +78,7 @@ public:
   StreamHdrType hdrType;
   StreamHdrType hdrTypeAlt;
   std::string strDVELType;
+  std::shared_ptr<const DoviRpu> doviRpu;
 
   bool hasDisplayMetadata = false;
   AVMasteringDisplayMetadata displayMetadata;
