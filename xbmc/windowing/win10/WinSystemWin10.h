@@ -84,6 +84,8 @@ public:
   bool UseLimitedColor() override;
   float GetGuiSdrPeakLuminance() const override;
   bool HasSystemSdrPeakLuminance() override;
+  CHDRCapabilities GetDisplayHDRCapabilities() const override;
+  bool SetDolbyVisionOutput(bool enabled);
 
   // videosync
   std::unique_ptr<CVideoSync> GetVideoSync(CVideoReferenceClock* clock) override;

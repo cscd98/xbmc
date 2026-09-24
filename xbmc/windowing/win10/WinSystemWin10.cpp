@@ -307,6 +307,56 @@ const MONITOR_DETAILS* CWinSystemWin10::GetDefaultMonitor() const
   return &m_displays.front();
 }
 
+CHDRCapabilities CWinSystemWin10::GetDisplayHDRCapabilities() const
+{
+  CHDRCapabilities caps;
+  if (CSysInfo::GetWindowsDeviceFamily() != CSysInfo::WindowsDeviceFamily::Xbox ||
+      !ApiInformation::IsPropertyPresent(L"Windows.Graphics.Display.Core.HdmiDisplayMode",
+                                         L"IsDolbyVisionLowLatencySupported"))
+    return caps;
+
+  const auto hdmiInfo = HdmiDisplayInformation::GetForCurrentView();
+  if (!hdmiInfo)
+    return caps;
+
+  for (const auto& mode : hdmiInfo.GetSupportedDisplayModes())
+  {
+    if (mode.IsDolbyVisionLowLatencySupported())
+    {
+      caps.SetDolbyVision();
+      break;
+    }
+  }
+  return caps;
+}
+
+bool CWinSystemWin10::SetDolbyVisionOutput(bool enabled)
+{
+  if (CSysInfo::GetWindowsDeviceFamily() != CSysInfo::WindowsDeviceFamily::Xbox ||
+      !ApiInformation::IsPropertyPresent(L"Windows.Graphics.Display.Core.HdmiDisplayMode",
+                                         L"IsDolbyVisionLowLatencySupported"))
+    return false;
+
+  const auto hdmiInfo = HdmiDisplayInformation::GetForCurrentView();
+  if (!hdmiInfo)
+    return false;
+
+  const auto currentMode = hdmiInfo.GetCurrentDisplayMode();
+  for (const auto& mode : hdmiInfo.GetSupportedDisplayModes())
+  {
+    if (mode.ResolutionWidthInRawPixels() == currentMode.ResolutionWidthInRawPixels() &&
+        mode.ResolutionHeightInRawPixels() == currentMode.ResolutionHeightInRawPixels() &&
+        fabs(mode.RefreshRate() - currentMode.RefreshRate()) <= 0.00001 &&
+        (!enabled || mode.IsDolbyVisionLowLatencySupported()))
+    {
+      return Wait(hdmiInfo.RequestSetCurrentDisplayModeAsync(
+          mode,
+          enabled ? HdmiDisplayHdrOption::DolbyVisionLowLatency : HdmiDisplayHdrOption::None));
+    }
+  }
+  return false;
+}
+
 bool CWinSystemWin10::ChangeResolution(const RESOLUTION_INFO& res, bool forceChange /*= false*/)
 {
   const MONITOR_DETAILS* details = GetDefaultMonitor();

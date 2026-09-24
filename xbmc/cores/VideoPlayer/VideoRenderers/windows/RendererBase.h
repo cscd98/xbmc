@@ -11,6 +11,7 @@
 #include "VideoRenderers/DebugInfo.h"
 #include "VideoRenderers/RenderInfo.h"
 #include "VideoRenderers/VideoShaders/WinVideoFilter.h"
+#include "cores/VideoPlayer/Interface/StreamInfo.h"
 #include "cores/VideoSettings.h"
 #include "guilib/D3DResource.h"
 
@@ -80,6 +81,7 @@ public:
   AVColorPrimaries primaries = AVCOL_PRI_BT709;
   AVColorSpace color_space = AVCOL_SPC_BT709;
   AVColorTransferCharacteristic color_transfer = AVCOL_TRC_BT709;
+  StreamHdrType hdrType = StreamHdrType::HDR_TYPE_NONE;
   bool full_range = false;
   int bits = 8;
   uint8_t texBits = 8;
@@ -211,5 +213,6 @@ protected:
   HDR_TYPE m_HdrType = HDR_TYPE::HDR_INVALID;
   bool m_AutoSwitchHDR = false;
   bool m_initialHdrEnabled = false;
+  bool m_DolbyVisionOutput = false;
   std::string m_renderMethodName;
 };

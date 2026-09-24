@@ -236,10 +236,20 @@
         <setting id="videoplayer.allowedhdrformats" type="list[integer]" label="39198" help="39199">
           <requirement><!-- Android and webOS use CBitstreamConverter -->
             <or>
+              <condition>HAS_DX</condition>
               <condition>HAS_MEDIACODEC</condition>
               <condition>HAVE_WEBOS</condition>
             </or>
           </requirement>
+          <dependencies>
+            <dependency type="visible">
+              <or>
+                <condition on="property" name="supportsdolbyvision" />
+                <condition>HAS_MEDIACODEC</condition>
+                <condition>HAVE_WEBOS</condition>
+              </or>
+            </dependency>
+          </dependencies>
           <level>2</level>
           <default>0,1</default> <!-- Allow all HDR formats -->
           <constraints>
