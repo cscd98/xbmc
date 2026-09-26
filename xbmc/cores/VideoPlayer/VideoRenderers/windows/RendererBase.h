@@ -52,7 +52,8 @@ enum class HDR_TYPE
   HDR_INVALID = -1,
   HDR_NONE_SDR = 0,
   HDR_HDR10 = 1,
-  HDR_HLG = 2
+  HDR_HLG = 2,
+  HDR_DOLBYVISION = 3
 };
 
 class CRenderBuffer
@@ -167,7 +168,8 @@ protected:
   */
   bool ActualRenderAsHDR()
   {
-    return m_HdrType == HDR_TYPE::HDR_HDR10 || m_HdrType == HDR_TYPE::HDR_HLG;
+    return m_HdrType == HDR_TYPE::HDR_HDR10 || m_HdrType == HDR_TYPE::HDR_HLG ||
+           m_HdrType == HDR_TYPE::HDR_DOLBYVISION;
   }
 
   virtual void RenderImpl(CD3DTexture& target, CRect& sourceRect, CPoint (&destPoints)[4], uint32_t flags) = 0;
