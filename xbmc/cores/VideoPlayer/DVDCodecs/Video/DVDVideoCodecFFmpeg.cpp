@@ -23,6 +23,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/CPUInfo.h"
+#include "utils/SystemInfo.h"
 #include "utils/StringUtils.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
@@ -327,6 +328,10 @@ CDVDVideoCodecFFmpeg::~CDVDVideoCodecFFmpeg()
 
 bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
 {
+#if defined(TARGET_WINDOWS_STORE)
+  m_doviLevel5Converter.reset();
+#endif
+
   if (hints.cryptoSession)
   {
     CLog::Log(LOGERROR,"CDVDVideoCodecFFmpeg::Open() CryptoSessions unsupported!");
@@ -335,6 +340,28 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
 
   m_hints = hints;
   m_options = options;
+
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  if (CSysInfo::GetWindowsDeviceFamily() == CSysInfo::Xbox &&
+      hints.codec == AV_CODEC_ID_HEVC &&
+      settings->GetBool(CSettings::SETTING_VIDEOPLAYER_DOVIZEROLEVEL5) && hints.extradata)
+  {
+    m_doviLevel5Converter = std::make_unique<CBitstreamConverter>();
+    if (m_doviLevel5Converter->Open(hints.codec, hints.extradata.GetData(),
+                                   hints.extradata.GetSize(), true))
+    {
+      m_doviLevel5Converter->SetDoviZeroLevel5(true);
+      CLog::Log(LOGINFO, "CDVDVideoCodecFFmpeg: applying Dolby Vision profile 5 RPU workaround");
+    }
+    else
+    {
+      CLog::Log(LOGWARNING,
+                "CDVDVideoCodecFFmpeg: unable to initialize Dolby Vision profile 5 converter");
+      m_doviLevel5Converter.reset();
+    }
+  }
+#endif
 
   const AVCodec* pCodec = nullptr;
 
@@ -409,14 +436,23 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   m_pCodecContext->bits_per_coded_sample = hints.bitsperpixel;
   m_pCodecContext->bits_per_raw_sample = hints.bitdepth;
 
-  if (hints.extradata)
+  const uint8_t* extraData = hints.extradata.GetData();
+  int extraDataSize = hints.extradata.GetSize();
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  if (m_doviLevel5Converter && m_doviLevel5Converter->NeedConvert())
+  {
+    extraData = m_doviLevel5Converter->GetExtraData();
+    extraDataSize = m_doviLevel5Converter->GetExtraSize();
+  }
+#endif
+  if (extraData && extraDataSize > 0)
   {
     m_pCodecContext->extradata =
-        (uint8_t*)av_mallocz(hints.extradata.GetSize() + AV_INPUT_BUFFER_PADDING_SIZE);
+        (uint8_t*)av_mallocz(extraDataSize + AV_INPUT_BUFFER_PADDING_SIZE);
     if (m_pCodecContext->extradata)
     {
-      m_pCodecContext->extradata_size = hints.extradata.GetSize();
-      memcpy(m_pCodecContext->extradata, hints.extradata.GetData(), hints.extradata.GetSize());
+      m_pCodecContext->extradata_size = extraDataSize;
+      memcpy(m_pCodecContext->extradata, extraData, extraDataSize);
     }
   }
 
@@ -481,6 +517,10 @@ void CDVDVideoCodecFFmpeg::Dispose()
   av_frame_free(&m_pDecodedFrame);
   av_frame_free(&m_pFilterFrame);
   avcodec_free_context(&m_pCodecContext);
+
+#if defined(TARGET_WINDOWS_STORE)
+  m_doviLevel5Converter.reset();
+#endif
 
   if (m_pHardware)
   {
@@ -609,6 +649,14 @@ bool CDVDVideoCodecFFmpeg::AddData(const DemuxPacket &packet)
 
   avpkt->data = packet.pData;
   avpkt->size = packet.iSize;
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  if (m_doviLevel5Converter && m_doviLevel5Converter->Convert(packet.pData, packet.iSize) &&
+      m_doviLevel5Converter->GetConvertSize() > 0)
+  {
+    avpkt->data = m_doviLevel5Converter->GetConvertBuffer();
+    avpkt->size = m_doviLevel5Converter->GetConvertSize();
+  }
+#endif
   avpkt->dts = (packet.dts == DVD_NOPTS_VALUE)
                    ? AV_NOPTS_VALUE
                    : static_cast<int64_t>(packet.dts / DVD_TIME_BASE * AV_TIME_BASE);
@@ -967,6 +1015,11 @@ void CDVDVideoCodecFFmpeg::Reset()
 
   if (m_pHardware)
     m_pHardware->Reset();
+
+#if defined(TARGET_WINDOWS_STORE)
+  if (m_doviLevel5Converter)
+    m_doviLevel5Converter->ResetStartDecode();
+#endif
 
   m_filters = "";
   FilterClose();

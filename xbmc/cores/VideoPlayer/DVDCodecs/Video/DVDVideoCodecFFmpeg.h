@@ -13,6 +13,10 @@
 #include "cores/VideoPlayer/DVDCodecs/DVDCodecs.h"
 #include "cores/VideoPlayer/DVDStreamInfo.h"
 
+#if defined(TARGET_WINDOWS_STORE)
+#include "utils/BitstreamConverter.h"
+#endif
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -102,6 +106,9 @@ protected:
   double m_DAR = 1.0;
   CDVDStreamInfo m_hints;
   CDVDCodecOptions m_options;
+#if defined(TARGET_WINDOWS_STORE)
+  std::unique_ptr<CBitstreamConverter> m_doviLevel5Converter;
+#endif
 
   struct CDropControl
   {
