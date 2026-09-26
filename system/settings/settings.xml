@@ -215,8 +215,9 @@
           <control type="toggle" />
         </setting>
         <setting id="videoplayer.convertdovi" type="boolean" label="39196" help="39197">
-          <requirement><!-- Android and webOS use CBitstreamConverter -->
+          <requirement><!-- Xbox, Android, webOS use CBitstreamConverter -->
             <or>
+              <condition>HAS_DX</condition>
               <condition>HAS_MEDIACODEC</condition>
               <condition>HAVE_WEBOS</condition>
             </or>
@@ -234,7 +235,7 @@
           <control type="toggle" />
         </setting>
         <setting id="videoplayer.allowedhdrformats" type="list[integer]" label="39198" help="39199">
-          <requirement><!-- Android and webOS use CBitstreamConverter -->
+          <requirement><!-- Xbox, Android, webOS use CBitstreamConverter -->
             <or>
               <condition>HAS_DX</condition>
               <condition>HAS_MEDIACODEC</condition>
@@ -265,8 +266,9 @@
           </control>
         </setting>
         <setting id="videoplayer.dovizerolevel5" type="boolean" label="39209" help="39210">
-          <requirement><!-- Android and webOS use CBitstreamConverter -->
+          <requirement><!-- Xbox, Android, webOS use CBitstreamConverter -->
             <or>
+              <condition>HAS_DX</condition>
               <condition>HAS_MEDIACODEC</condition>
               <condition>HAVE_WEBOS</condition>
             </or>

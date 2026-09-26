@@ -26,6 +26,30 @@
 
 using namespace Microsoft::WRL;
 
+namespace
+{
+bool CanRenderDolbyVision()
+{
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  const auto allowedHdrFormats = std::dynamic_pointer_cast<CSettingList>(
+      settings->GetSetting(CSettings::SETTING_VIDEOPLAYER_ALLOWEDHDRFORMATS));
+
+  return CSettingUtils::FindIntInList(allowedHdrFormats,
+                                      CSettings::VIDEOPLAYER_ALLOWED_HDR_TYPE_DOLBY_VISION) &&
+         DX::Windowing()->GetDisplayHDRCapabilities().SupportsDolbyVision();
+}
+
+bool IsHdrStream(const VideoPicture& picture)
+{
+  if (picture.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION)
+    return CanRenderDolbyVision();
+
+  return picture.color_primaries == AVCOL_PRI_BT2020 &&
+         (picture.color_transfer == AVCOL_TRC_SMPTE2084 ||
+          picture.color_transfer == AVCOL_TRC_ARIB_STD_B67);
+}
+} // namespace
+
 void CRenderBuffer::AppendPicture(const VideoPicture& picture)
 {
   videoBuffer = picture.videoBuffer;
@@ -212,9 +236,7 @@ bool CRendererBase::Configure(const VideoPicture& picture, float fps, unsigned o
     m_initialHdrEnabled = DX::Windowing()->IsHDROutput();
     CLog::LogF(LOGDEBUG, "Storing Windows HDR state: {}", m_initialHdrEnabled ? "ON" : "OFF");
 
-    const bool streamIsHDR = (picture.color_primaries == AVCOL_PRI_BT2020) &&
-                             (picture.color_transfer == AVCOL_TRC_SMPTE2084 ||
-                              picture.color_transfer == AVCOL_TRC_ARIB_STD_B67);
+    const bool streamIsHDR = IsHdrStream(picture);
 
     if (streamIsHDR != DX::Windowing()->IsHDROutput())
       DX::Windowing()->ToggleHDR();
@@ -593,14 +615,8 @@ DXGI_HDR_METADATA_HDR10 CRendererBase::GetDXGIHDR10MetaData(CRenderBuffer* rb)
 
 void CRendererBase::ProcessHDR(CRenderBuffer* rb)
 {
-  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-  const auto allowedHdrFormats = std::dynamic_pointer_cast<CSettingList>(
-      settings->GetSetting(CSettings::SETTING_VIDEOPLAYER_ALLOWEDHDRFORMATS));
-  const bool allowDolbyVision = CSettingUtils::FindIntInList(
-      allowedHdrFormats, CSettings::VIDEOPLAYER_ALLOWED_HDR_TYPE_DOLBY_VISION);
-  const bool useDolbyVision = rb->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION &&
-                              allowDolbyVision &&
-                              DX::Windowing()->GetDisplayHDRCapabilities().SupportsDolbyVision();
+  const bool useDolbyVision =
+      rb->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION && CanRenderDolbyVision();
 
   if (useDolbyVision != m_DolbyVisionOutput &&
       DX::Windowing()->SetDolbyVisionOutput(useDolbyVision))
@@ -608,6 +624,38 @@ void CRendererBase::ProcessHDR(CRenderBuffer* rb)
     m_DolbyVisionOutput = useDolbyVision;
     if (useDolbyVision)
       DX::Windowing()->SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+  }
+
+  if (m_DolbyVisionOutput && rb->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION)
+  {
+    if (m_AutoSwitchHDR && !DX::Windowing()->IsHDROutput())
+      DX::Windowing()->ToggleHDR();
+
+    if (DX::Windowing()->IsHDROutput())
+    {
+      DX::Windowing()->SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+      DXGI_HDR_METADATA_HDR10 hdr10 = GetDXGIHDR10MetaData(rb);
+      if (m_HdrType != HDR_TYPE::HDR_DOLBYVISION ||
+          0 != std::memcmp(&hdr10, &m_lastHdr10, sizeof(hdr10)))
+      {
+        if (rb->hasDisplayMetadata || rb->hasLightMetadata)
+        {
+          CLog::LogF(LOGDEBUG,
+                     "Dolby Vision: submitting available HDR10 static metadata (mastering: {}, "
+                     "content light: {})",
+                     rb->hasDisplayMetadata, rb->hasLightMetadata);
+          DX::Windowing()->SetHdrMetaData(hdr10);
+        }
+        else
+        {
+          CLog::LogF(LOGDEBUG,
+                     "Dolby Vision: no HDR10 static metadata is present");
+        }
+        m_lastHdr10 = hdr10;
+      }
+      m_HdrType = HDR_TYPE::HDR_DOLBYVISION;
+      return;
+    }
   }
 
   if (m_AutoSwitchHDR && rb->primaries == AVCOL_PRI_BT2020 &&
@@ -795,9 +843,7 @@ DEBUG_INFO_VIDEO CRendererBase::GetDebugInfo(int idx)
 
 bool CRendererBase::IntendToRenderAsHDR(const VideoPicture& picture)
 {
-  const bool streamIsHDR = (picture.color_primaries == AVCOL_PRI_BT2020) &&
-                           (picture.color_transfer == AVCOL_TRC_SMPTE2084 ||
-                            picture.color_transfer == AVCOL_TRC_ARIB_STD_B67);
+  const bool streamIsHDR = IsHdrStream(picture);
 
   const bool canDisplayHDR =
       DX::Windowing()->IsHDROutput() || DX::Windowing()->IsHDRDisplaySettingEnabled();
