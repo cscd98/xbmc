@@ -555,6 +555,17 @@ HRESULT DX::DeviceResources::CreateSwapChain(DXGI_SWAP_CHAIN_DESC1& desc, DXGI_S
   ); RETURN_ERR(hr);
   hr = m_dxgiFactory->MakeWindowAssociation(m_window, /*DXGI_MWA_NO_WINDOW_CHANGES |*/ DXGI_MWA_NO_ALT_ENTER);
 #else
+  if (m_useComposition)
+  {
+    desc.Scaling = DXGI_SCALING_STRETCH; // required for composition swapchains
+    desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    hr = m_dxgiFactory->CreateSwapChainForComposition(m_d3dDevice.Get(), &desc, nullptr,
+                                                      ppSwapChain);
+    RETURN_ERR(hr);
+    CMFDVCompositionHost::Get().SetGuiSwapChain(*ppSwapChain, m_outputSize.Width,
+                                                m_outputSize.Height);
+    return hr;
+  }
   hr = m_dxgiFactory->CreateSwapChainForCoreWindow(
     m_d3dDevice.Get(),
     winrt::get_unknown(m_coreWindow),
@@ -748,6 +759,12 @@ void DX::DeviceResources::ResizeBuffers()
     if (m_IsHDROutput)
       SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
   }
+
+#if defined(TARGET_WINDOWS_STORE)
+  if (m_useComposition)
+    CMFDVCompositionHost::Get().SetOutputSize(m_outputSize.Width, m_outputSize.Height,
+                                              m_logicalSize.Width, m_logicalSize.Height);
+#endif
 
   CLog::LogF(LOGDEBUG, "end resize buffers.");
 }
@@ -1250,6 +1267,11 @@ void DX::DeviceResources::SetWindow(const winrt::Windows::UI::Core::CoreWindow& 
     handler();
   else
     dispatcher.RunAsync(CoreDispatcherPriority::High, handler).get();
+
+  m_useComposition = CSysInfo::GetWindowsDeviceFamily() == CSysInfo::Xbox &&
+                     CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+                         "videoplayer.usemfdolbyvision") &&
+                     CMFDVCompositionHost::Get().Init();
 
   CreateDeviceIndependentResources();
   CreateDeviceResources();

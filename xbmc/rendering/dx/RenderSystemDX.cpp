@@ -78,8 +78,15 @@ bool CRenderSystemDX::InitRenderSystem()
 #endif
   CDVDFactoryCodec::ClearHWAccels();
   DXVA::CDecoder::Register();
+#if defined(TARGET_WINDOWS_STORE)
+  CDVDFactoryCodec::ClearHWVideoCodecs();
+  CDVDVideoCodecMFDV::Register();
+#endif
   VIDEOPLAYER::CRendererFactory::ClearRenderer();
   CWinRenderer::Register();
+#if defined(TARGET_WINDOWS_STORE)
+  CRendererMFDV::Register();
+#endif
 #if defined(TARGET_WINDOWS_DESKTOP)
   RETRO::CRPProcessInfoWin::Register();
   RETRO::CRPProcessInfoWin::RegisterRendererFactory(new RETRO::CWinRendererFactory);

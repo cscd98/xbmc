@@ -116,6 +116,10 @@ bool CRendererDXVA::Configure(const VideoPicture& picture, float fps, unsigned o
                "Dolby Vision DXVA input: primaries {}, color space {}, transfer {}, full range {}; ",
                primaries ? primaries : "unknown", colorSpace ? colorSpace : "unknown",
                transfer ? transfer : "unknown", picture.color_range == 1);
+
+    customPicture.color_space = AVCOL_SPC_BT2020_NCL;
+    customPicture.color_primaries = AVCOL_PRI_BT2020;
+    customPicture.color_transfer = AVCOL_TRC_SMPTE2084;
   }
 
   if (__super::Configure(picture, fps, orientation))
