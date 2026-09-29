@@ -1226,6 +1226,8 @@ bool CWIN32Util::SetThreadLocalLocale(bool enable /* = true */)
 
 HDR_STATUS CWIN32Util::ToggleWindowsHDR()
 {
+  CLog::LogF(LOGINFO, "MFDV (not): ToggleWindowsHDR");
+
   HDR_STATUS status = HDR_STATUS::HDR_TOGGLE_FAILED;
 
 #ifdef TARGET_WINDOWS_STORE

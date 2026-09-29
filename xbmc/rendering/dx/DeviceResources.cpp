@@ -25,6 +25,7 @@
 
 #ifdef TARGET_WINDOWS_STORE
 #include <winrt/Windows.Graphics.Display.Core.h>
+#include "windowing/win10/MFCompositionHost.h"
 
 extern "C"
 {
@@ -555,6 +556,16 @@ HRESULT DX::DeviceResources::CreateSwapChain(DXGI_SWAP_CHAIN_DESC1& desc, DXGI_S
   ); RETURN_ERR(hr);
   hr = m_dxgiFactory->MakeWindowAssociation(m_window, /*DXGI_MWA_NO_WINDOW_CHANGES |*/ DXGI_MWA_NO_ALT_ENTER);
 #else
+  if (m_useComposition)
+  {
+    desc.Scaling = DXGI_SCALING_STRETCH; // required for composition swapchains
+    desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    hr = m_dxgiFactory->CreateSwapChainForComposition(m_d3dDevice.Get(), &desc, nullptr,
+                                                      ppSwapChain);
+    RETURN_ERR(hr);
+    CMFCompositionHost::Get().SetGuiSwapChain(*ppSwapChain);
+    return hr;
+  }
   hr = m_dxgiFactory->CreateSwapChainForCoreWindow(
     m_d3dDevice.Get(),
     winrt::get_unknown(m_coreWindow),
@@ -748,6 +759,12 @@ void DX::DeviceResources::ResizeBuffers()
     if (m_IsHDROutput)
       SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
   }
+
+#if defined(TARGET_WINDOWS_STORE)
+  if (m_useComposition)
+    CMFCompositionHost::Get().SetOutputSize(m_outputSize.Width, m_outputSize.Height,
+                                              m_logicalSize.Width, m_logicalSize.Height);
+#endif
 
   CLog::LogF(LOGDEBUG, "end resize buffers.");
 }
@@ -1251,6 +1268,11 @@ void DX::DeviceResources::SetWindow(const winrt::Windows::UI::Core::CoreWindow& 
   else
     dispatcher.RunAsync(CoreDispatcherPriority::High, handler).get();
 
+  m_useComposition = CSysInfo::GetWindowsDeviceFamily() == CSysInfo::Xbox &&
+                     CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+                         "videoplayer.usemfdolbyvision") &&
+                     CMFCompositionHost::Get().Init();
+
   CreateDeviceIndependentResources();
   CreateDeviceResources();
   // we have to call this because we will not get initial WM_SIZE
@@ -1283,6 +1305,8 @@ void DX::DeviceResources::Trim() const
 
 void DX::DeviceResources::SetHdrMetaData(DXGI_HDR_METADATA_HDR10& hdr10) const
 {
+  CLog::LogF(LOGDEBUG, "MFDV: DX::DeviceResources::SetHdrMetaData");
+
   ComPtr<IDXGISwapChain4> swapChain4;
 
   if (!m_swapChain)
@@ -1356,6 +1380,8 @@ void DX::DeviceResources::SetHdrColorSpace(const DXGI_COLOR_SPACE_TYPE colorSpac
 
 HDR_STATUS DX::DeviceResources::ToggleHDR()
 {
+  CLog::LogF(LOGINFO, "MFDV (not): ToggleHDR()");
+
   // Xbox uses only full screen windowed mode and not needs recreate swapchain.
   // Recreate swapchain causes native 4K resolution is lost and quality obtained
   // is equivalent to 1080p upscaled to 4K (TO DO: investigate root cause).

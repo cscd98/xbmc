@@ -199,5 +199,6 @@ namespace DX
     bool m_DXVA2SharedDecoderSurfaces{false};
     bool m_DXVASuperResolutionSupport{false};
     bool m_DXVA2UseFence{false};
+    bool m_useComposition{false};
   };
 }

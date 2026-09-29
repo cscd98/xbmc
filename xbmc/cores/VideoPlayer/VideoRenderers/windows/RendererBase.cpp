@@ -615,6 +615,8 @@ DXGI_HDR_METADATA_HDR10 CRendererBase::GetDXGIHDR10MetaData(CRenderBuffer* rb)
 
 void CRendererBase::ProcessHDR(CRenderBuffer* rb)
 {
+  CLog::LogF(LOGINFO, "MFDV (not): ProcessHDR()");
+
   const bool useDolbyVision =
       rb->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION && CanRenderDolbyVision();
 
@@ -633,6 +635,8 @@ void CRendererBase::ProcessHDR(CRenderBuffer* rb)
 
     if (DX::Windowing()->IsHDROutput())
     {
+      CLog::LogF(LOGDEBUG, "MFDV: Is HDR output");
+
       DX::Windowing()->SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
       DXGI_HDR_METADATA_HDR10 hdr10 = GetDXGIHDR10MetaData(rb);
       if (m_HdrType != HDR_TYPE::HDR_DOLBYVISION ||
@@ -684,12 +688,14 @@ void CRendererBase::ProcessHDR(CRenderBuffer* rb)
       // Sets HDR10 metadata only if it differs from previous
       if (0 != std::memcmp(&hdr10, &m_lastHdr10, sizeof(hdr10)))
       {
+        CLog::LogF(LOGDEBUG, "MFDV: CRendererBase::ProcessHDR - SetHdrMetaData");
         DX::Windowing()->SetHdrMetaData(hdr10);
         m_lastHdr10 = hdr10;
       }
     }
     else
     {
+      CLog::LogF(LOGDEBUG, "MFDV: CRendererBase::ProcessHDR - Windowing - SetHdrMetaData");
       // Sets HDR10 metadata and enables HDR10 color space (switch to HDR rendering)
       DX::Windowing()->SetHdrMetaData(hdr10);
       CLog::LogF(LOGINFO, "Switching to HDR rendering");
@@ -717,6 +723,7 @@ void CRendererBase::ProcessHDR(CRenderBuffer* rb)
       hdr10.WhitePoint[1] = 16450;
       hdr10.MaxMasteringLuminance = 1000 * 10000; // 1000 nits
       hdr10.MinMasteringLuminance = 50; // 0.005 nits
+      CLog::LogF(LOGDEBUG, "MFDV: CRendererBase::ProcessHDR - m_HdrType != HDR_TYPE::HDR_HLG - SetHdrMetaData");
       DX::Windowing()->SetHdrMetaData(hdr10);
       CLog::LogF(LOGINFO, "Switching to HDR rendering");
       DX::Windowing()->SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
