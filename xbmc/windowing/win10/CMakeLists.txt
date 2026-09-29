@@ -1,11 +1,13 @@
 set(SOURCES WinEventsWin10.cpp
             WinSystemWin10.cpp
             WinSystemWin10DX.cpp
+            MFCompositionHost.cpp
             ../windows/VideoSyncD3D.cpp)
 
 set(HEADERS WinEventsWin10.h
             WinSystemWin10.h
             WinSystemWin10DX.h
+            MFCompositionHost.h
             ../windows/VideoSyncD3D.h
             ../windows/WinKeyMap.h)
 
