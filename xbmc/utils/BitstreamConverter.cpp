@@ -1327,9 +1327,16 @@ bool CBitstreamConverter::mpeg2_sequence_header(const uint8_t* data,
 // May be NULL if no processing was done or if parsing errored
 const DoviData* CBitstreamConverter::processDoviRpu(uint8_t* buf, uint32_t nalSize)
 {
+  //CLog::LogF(LOGINFO,
+  //             "MFDV: processDoviRpu");
+
   // early exit if no processing option is enabled
   if (!m_convert_dovi && !m_setDoviZeroLevel5)
+  {
+    //CLog::LogF(LOGINFO,
+    //           "MFDV: exit as convert dovi false");
     return NULL;
+  }
 
   DoviRpuOpaque* rpu = dovi_parse_unspec62_nalu(buf, nalSize);
   const DoviRpuDataHeader* header = dovi_rpu_get_header(rpu);

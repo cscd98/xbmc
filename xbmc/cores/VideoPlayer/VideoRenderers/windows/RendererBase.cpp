@@ -615,6 +615,8 @@ DXGI_HDR_METADATA_HDR10 CRendererBase::GetDXGIHDR10MetaData(CRenderBuffer* rb)
 
 void CRendererBase::ProcessHDR(CRenderBuffer* rb)
 {
+  CLog::LogF(LOGINFO, "MFDV (not): ProcessHDR()");
+
   const bool useDolbyVision =
       rb->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION && CanRenderDolbyVision();
 
@@ -633,6 +635,8 @@ void CRendererBase::ProcessHDR(CRenderBuffer* rb)
 
     if (DX::Windowing()->IsHDROutput())
     {
+      CLog::LogF(LOGDEBUG, "MFDV: Is HDR output");
+
       DX::Windowing()->SetHdrColorSpace(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
       DXGI_HDR_METADATA_HDR10 hdr10 = GetDXGIHDR10MetaData(rb);
       if (m_HdrType != HDR_TYPE::HDR_DOLBYVISION ||
