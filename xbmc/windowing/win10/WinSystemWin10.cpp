@@ -332,6 +332,7 @@ CHDRCapabilities CWinSystemWin10::GetDisplayHDRCapabilities() const
 
 bool CWinSystemWin10::SetDolbyVisionOutput(bool enabled)
 {
+  CLog::LogF(LOGINFO, "MFDV: SetDolbyVisionOutput");
   if (CSysInfo::GetWindowsDeviceFamily() != CSysInfo::WindowsDeviceFamily::Xbox ||
       !ApiInformation::IsPropertyPresent(L"Windows.Graphics.Display.Core.HdmiDisplayMode",
                                          L"IsDolbyVisionLowLatencySupported"))
@@ -357,6 +358,8 @@ bool CWinSystemWin10::SetDolbyVisionOutput(bool enabled)
           Wait(hdmiInfo.RequestSetCurrentDisplayModeAsync(mode, hdrOption));
       if (success)
         m_dolbyVisionPreviousHdrState = enabled && currentMode.IsSmpte2084Supported();
+
+      CLog::LogF(LOGINFO, "MFDV: SetDolbyVisionOutput success: {}", success);
       return success;
     }
   }
