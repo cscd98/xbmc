@@ -7,6 +7,7 @@
  */
 
 #include "MFSession.h"
+#include "DVDStreamInfo.h"
 
 #include <winrt/Windows.Media.MediaProperties.h>
 #include <winrt/Windows.Media.Protection.h>
@@ -184,6 +185,44 @@ bool CMFSession::OpenWith(const winrt::hstring& subtype, unsigned w, unsigned h,
   }
 }
 
+bool CMFSession::ConfigureAudio(const CDVDStreamInfo& hints)
+{
+  if (!m_player || !m_mss || hints.codec != AV_CODEC_ID_AAC || hints.samplerate <= 0 ||
+      hints.channels <= 0 || !hints.extradata)
+    return false;
+
+  try
+  {
+    auto properties = AudioEncodingProperties::CreateAac(
+        hints.samplerate, hints.channels, hints.bitrate > 0 ? hints.bitrate : 128000);
+    properties.SetFormatUserData(array_view<const uint8_t>(
+        hints.extradata.GetData(), hints.extradata.GetData() + hints.extradata.GetSize()));
+    m_audioDesc = AudioStreamDescriptor(properties);
+
+    // A new source is required because stream descriptors cannot be added while the
+    // existing source is attached to the MediaPlayer pipeline.
+    Restart();
+    return true;
+  }
+  catch (const hresult_error& e)
+  {
+    CLog::LogF(LOGWARNING, "MFDV: AAC stream setup failed: {:#x}",
+               static_cast<uint32_t>(e.code()));
+    m_audioDesc = nullptr;
+    try
+    {
+      Restart();
+    }
+    catch (const hresult_error& restoreError)
+    {
+      CLog::LogF(LOGERROR, "MFDV: Failed to restore video-only source: {:#x}",
+                 static_cast<uint32_t>(restoreError.code()));
+      Close();
+    }
+    return false;
+  }
+}
+
 void CMFSession::CreateSource()
 {
   {
@@ -193,7 +232,7 @@ void CMFSession::CreateSource()
   }
 
   CLog::LogF(LOGINFO, "MFDV: Creating MediaStreamSource");
-  m_mss = MediaStreamSource(m_desc);
+  m_mss = m_audioDesc ? MediaStreamSource(m_desc, m_audioDesc) : MediaStreamSource(m_desc);
   CLog::LogF(LOGINFO, "MFDV: MediaStreamSource created");
   m_mss.BufferTime(0s);
   m_mss.CanSeek(false);
@@ -203,18 +242,18 @@ void CMFSession::CreateSource()
   {
     std::lock_guard l(m_mtx);
     auto req = a.Request();
-    if (!m_queue.empty())
+    const size_t streamIndex = req.StreamDescriptor().try_as<AudioStreamDescriptor>() ? 1 : 0;
+    if (!m_queues[streamIndex].empty())
     {
-      req.Sample(m_queue.front());
-      m_queue.pop_front();
+      req.Sample(m_queues[streamIndex].front());
+      m_queues[streamIndex].pop_front();
       const uint64_t n = ++m_delivered;
       if (n == 1 || n % 120 == 0)
         CLog::LogF(LOGINFO, "MF consumed {} samples (pushed {})", n, m_pushed.load());
     }
     else
     {
-      m_pendingReq = req;
-      m_deferral = req.GetDeferral();
+      m_pendingRequests[streamIndex].push_back({req, req.GetDeferral()});
     }
   });
   m_mss.SampleRendered([this](auto&&, MediaStreamSourceSampleRenderedEventArgs const& a)
@@ -242,9 +281,13 @@ void CMFSession::Close()
     m_player = nullptr;
   }
   std::lock_guard l(m_mtx);
-  m_queue.clear();
-  m_pendingReq = nullptr;
-  m_deferral = nullptr;
+  for (size_t i = 0; i < m_queues.size(); ++i)
+  {
+    m_queues[i].clear();
+    m_pendingRequests[i].clear();
+  }
+  m_audioDesc = nullptr;
+  m_desc = nullptr;
 }
 
 void CMFSession::Restart()
@@ -256,21 +299,46 @@ void CMFSession::Restart()
         winrt::Windows::Media::Playback::MediaPlaybackState::Playing)
       m_player.Pause();
   }
+  m_player.Source(nullptr);
+  m_mss = nullptr;
+  if (m_desc)
+    m_desc = VideoStreamDescriptor(m_desc.EncodingProperties().Copy());
+  if (m_audioDesc)
+    m_audioDesc = m_audioDesc.Copy();
   {
     std::lock_guard l(m_mtx);
-    m_queue.clear();
-    if (m_deferral) { m_deferral.Complete(); m_deferral = nullptr; m_pendingReq = nullptr; }
+    for (size_t i = 0; i < m_queues.size(); ++i)
+    {
+      m_queues[i].clear();
+      for (auto& pending : m_pendingRequests[i])
+      {
+        if (pending.deferral)
+          pending.deferral.Complete();
+      }
+      m_pendingRequests[i].clear();
+    }
   }
   CreateSource(); // an MSS cannot be flushed; a new source is the reliable "flush"
 }
 
-bool CMFSession::CanQueue()
+bool CMFSession::CanQueue(bool audio)
 {
   std::lock_guard l(m_mtx);
-  return m_queue.size() < kMaxQueue;
+  return m_queues[audio ? 1 : 0].size() < kMaxQueue;
 }
 
 void CMFSession::Push(const uint8_t* d, size_t n, double dtsUs, double ptsUs, double durUs, bool key)
+{
+  PushSample(d, n, dtsUs, ptsUs, durUs, key, 0);
+}
+
+void CMFSession::PushAudio(const uint8_t* d, size_t n, double dtsUs, double ptsUs, double durUs)
+{
+  PushSample(d, n, dtsUs, ptsUs, durUs, false, 1);
+}
+
+void CMFSession::PushSample(const uint8_t* d, size_t n, double dtsUs, double ptsUs, double durUs,
+                            bool key, size_t streamIndex)
 {
   if (m_baseUs.load() < 0)
   {
@@ -291,16 +359,17 @@ void CMFSession::Push(const uint8_t* d, size_t n, double dtsUs, double ptsUs, do
   ++m_pushed;
 
   std::lock_guard l(m_mtx);
-  if (m_deferral)
+  auto& pendingRequests = m_pendingRequests[streamIndex];
+  if (!pendingRequests.empty())
   {
-    m_pendingReq.Sample(sample);
-    m_deferral.Complete();
-    m_deferral = nullptr;
-    m_pendingReq = nullptr;
+    auto pending = std::move(pendingRequests.front());
+    pendingRequests.pop_front();
+    pending.request.Sample(sample);
+    pending.deferral.Complete();
     ++m_delivered;
   }
   else
-    m_queue.push_back(sample);
+    m_queues[streamIndex].push_back(sample);
 }
 
 void CMFSession::AttachSurface(float srcW, float srcH)
@@ -366,17 +435,22 @@ void CMFSession::OnFrame(double ptsUs)
   }
   if (m_speed != DVD_PLAYSPEED_NORMAL) return;
 
-  const int64_t want = static_cast<int64_t>((ptsUs - base + m_latencyUs) * 10);
+  const int64_t want = static_cast<int64_t>((ptsUs - base) * 10);
   const double driftMs =
       (m_player.PlaybackSession().Position().count() - want) / 10000.0;
   m_slew = driftMs > 40 ? 0.97 : driftMs < -40 ? 1.03 : (std::abs(driftMs) < 10 ? 1.0 : m_slew);
   ApplyRate();
+  const double requestedRate = m_slew * m_speed / static_cast<double>(DVD_PLAYSPEED_NORMAL);
+  const double effectiveRate = m_player.PlaybackSession().PlaybackRate();
 
   const auto now = std::chrono::steady_clock::now();
   if (now - m_lastLog > 2s)
   {
     m_lastLog = now;
-    CLog::LogF(LOGDEBUG, "drift {:.1f} ms, slew {:.2f}, pushed {}, consumed {}, rendered {}", driftMs,
-               m_slew, m_pushed.load(), m_delivered.load(), m_rendered.load());
+    CLog::LogF(LOGDEBUG,
+               "drift {:.1f} ms, rate requested {:.4f}, effective {:.4f}, pushed {}, consumed "
+               "{}, rendered {}",
+               driftMs, requestedRate, effectiveRate, m_pushed.load(), m_delivered.load(),
+               m_rendered.load());
   }
 }

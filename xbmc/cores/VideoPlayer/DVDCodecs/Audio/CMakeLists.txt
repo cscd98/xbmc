@@ -10,4 +10,9 @@ if(CORE_SYSTEM_NAME STREQUAL android)
   list(APPEND HEADERS DVDAudioCodecAndroidMediaCodec.h)
 endif()
 
+if(CORE_SYSTEM_NAME STREQUAL windowsstore)
+  list(APPEND SOURCES DVDAudioCodecMF.cpp)
+  list(APPEND HEADERS DVDAudioCodecMF.h)
+endif()
+
 core_add_library(dvdaudiocodecs)

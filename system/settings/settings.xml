@@ -285,7 +285,7 @@
           <default>false</default>
           <control type="toggle" />
         </setting>
-        <setting id="videoplayer.usemfdolbyvision" type="boolean" label="39210" help="39211">
+        <setting id="videoplayer.usemfdolbyvision" type="boolean" label="39218" help="39219">
           <requirement><!-- Xbox -->
             <or>
               <condition>HAS_DX</condition>

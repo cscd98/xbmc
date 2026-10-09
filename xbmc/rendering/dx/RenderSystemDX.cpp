@@ -37,6 +37,7 @@
 #include <DirectXPackedVector.h>
 
 #if defined(TARGET_WINDOWS_STORE)
+#include "cores/VideoPlayer/DVDCodecs/Audio/DVDAudioCodecMF.h"
 #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecMF.h"
 #include "cores/VideoPlayer/VideoRenderers/windows/RendererMF.h"
 #endif
@@ -86,6 +87,7 @@ bool CRenderSystemDX::InitRenderSystem()
 #if defined(TARGET_WINDOWS_STORE)
   CDVDFactoryCodec::ClearHWVideoCodecs();
   CDVDVideoCodecMF::Register();
+  CDVDAudioCodecMF::Register();
 #endif
   VIDEOPLAYER::CRendererFactory::ClearRenderer();
   CWinRenderer::Register();
