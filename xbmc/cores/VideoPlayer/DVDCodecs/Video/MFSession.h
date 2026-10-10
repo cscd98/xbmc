@@ -19,6 +19,10 @@
 #include <winrt/Windows.Media.Core.h>
 #include <winrt/Windows.Media.Playback.h>
 #include "cores/VideoPlayer/Interface/TimingConstants.h"
+#include "MFPacketSource.h"
+
+#include <dxgi1_5.h>
+#include <wrl/client.h>
 
 class CMFSession
 {
@@ -27,12 +31,16 @@ public:
   ~CMFSession();
 
   bool Open(unsigned w, unsigned h, unsigned fpsRate, unsigned fpsScale,
-            const uint8_t* seqHdr, size_t seqHdrSize, const std::vector<winrt::hstring>& candidate);
+      const uint8_t* seqHdr, size_t seqHdrSize,
+      const std::vector<winrt::hstring>& candidate,
+      const winrt::hstring& rendererExtensionProfile);
   bool OpenWith(const winrt::hstring& subtype, unsigned w, unsigned h, unsigned fpsRate, unsigned fpsScale,
-                const uint8_t* seqHdr, size_t seqHdrSize);
+          const uint8_t* seqHdr, size_t seqHdrSize,
+          const winrt::hstring& rendererExtensionProfile);
   void Close();
   void Restart();
   bool CanQueue();
+  HRESULT SetSequenceHeader(const uint8_t* data, size_t size);
   void Push(const uint8_t* d, size_t n, double dtsUs, double ptsUs, double durUs, bool key);
   void AttachSurface(float srcW, float srcH);
   void SetDestRect(float x, float y, float w, float h);
@@ -41,12 +49,32 @@ public:
 
 private:
   void CreateSource();
+  HRESULT StartNativeEngineSource();
+  bool CreateNativeEngine(unsigned width, unsigned height, unsigned fpsRate, unsigned fpsScale,
+                          const winrt::hstring& rendererExtensionProfile,
+                          const uint8_t* sequenceHeader, size_t sequenceHeaderSize);
   void ApplyRate();
+
+  Microsoft::WRL::ComPtr<IMFMediaEngine> m_engine;
+  Microsoft::WRL::ComPtr<IMFMediaEngineEx> m_engineEx;
+  Microsoft::WRL::ComPtr<IMFMediaEngineNotify> m_engineNotify;
+  Microsoft::WRL::ComPtr<CMFPacketSource> m_packetSource;
+  Microsoft::WRL::ComPtr<IDXGISwapChain1> m_videoSwapChain;
+  Microsoft::WRL::ComPtr<IDXGISwapChain3> m_videoSwapChain3;
+  Microsoft::WRL::ComPtr<IMFDXGIDeviceManager> m_dxgiManager;
+  unsigned m_nativeWidth{0};
+  unsigned m_nativeHeight{0};
+  unsigned m_nativeFpsRate{0};
+  unsigned m_nativeFpsScale{0};
+  std::vector<uint8_t> m_nativeSequenceHeader;
+  winrt::hstring m_nativeRendererProfile;
+  bool m_useNativeEngine{false};
+  bool m_nativeSourceStarted{false};
+  bool m_mfStarted{false};
 
   winrt::Windows::Media::Playback::MediaPlayer m_player{nullptr};
   winrt::Windows::Media::Core::MediaStreamSource m_mss{nullptr};
   winrt::Windows::Media::Core::VideoStreamDescriptor m_desc{nullptr};
-
   std::mutex m_mtx;
   std::deque<winrt::Windows::Media::Core::MediaStreamSample> m_queue;
   winrt::Windows::Media::Core::MediaStreamSourceSampleRequest m_pendingReq{nullptr};

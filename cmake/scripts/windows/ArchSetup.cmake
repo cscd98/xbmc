@@ -99,7 +99,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SAFESEH:NO")
 link_directories(${DEPENDS_PATH}/lib)
 
 # Additional libraries
-list(APPEND DEPLIBS bcrypt d3d11.lib mfplat.lib DInput8.lib DSound.lib winmm.lib Mpr.lib Iphlpapi.lib ws2_32
+list(APPEND DEPLIBS bcrypt d3d11.lib mfplat.lib mfuuid.lib DInput8.lib DSound.lib winmm.lib Mpr.lib Iphlpapi.lib ws2_32
                     PowrProf.lib setupapi.lib Shlwapi.lib dwmapi.lib dxguid.lib DelayImp.lib RuntimeObject.lib)
 
 # NODEFAULTLIB option

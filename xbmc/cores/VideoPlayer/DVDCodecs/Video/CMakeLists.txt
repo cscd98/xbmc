@@ -19,6 +19,8 @@ if(CORE_SYSTEM_NAME STREQUAL windows OR CORE_SYSTEM_NAME STREQUAL windowsstore)
   list(APPEND HEADERS DVDVideoCodecMF.h)
   list(APPEND SOURCES MFSession.cpp)
   list(APPEND HEADERS MFSession.h)
+  list(APPEND SOURCES MFPacketSource.cpp)
+  list(APPEND HEADERS MFPacketSource.h)
 endif()
 
 if(TARGET ${APP_NAME_LC}::VDPAU)

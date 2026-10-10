@@ -69,6 +69,7 @@ private:
   size_t m_reorderDepth = 6;
   int m_nalLen = 4;
   int m_ctrl = 0;
+  uint64_t m_inputPackets = 0;
   double m_lastPts = DVD_NOPTS_VALUE;
   CBitstreamConverter m_bsc;
 };
