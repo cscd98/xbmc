@@ -35,10 +35,6 @@ using namespace std::chrono_literals;
 namespace
 {
 constexpr size_t kMaxQueue = 12;
-constexpr GUID kDolbyVisionProfileAttribute{0x851745d5, 0xc3d6, 0x476d,
-                                            {0x95, 0x27, 0x49, 0x8e, 0xf2, 0xd1, 0x0d, 0x18}};
-constexpr GUID kDolbyVisionDisplayNameAttribute{0x39570660, 0x4f1c, 0x45d8,
-                                                {0x9b, 0x0d, 0x0e, 0xf6, 0x74, 0x85, 0x3f, 0x3a}};
 
 class CMFEngineNotify final
   : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
@@ -353,43 +349,7 @@ bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fp
   if (FAILED(hr))
     return false;
 
-  constexpr bool kBypassP5EffectForPixelTest = true;
-  if (kBypassP5EffectForPixelTest)
-  {
-    CLog::LogF(LOGWARNING, "MFDV: Diagnostic run bypasses the P5 renderer effect");
-  }
-  else
-  {
-    Microsoft::WRL::ComPtr<IMFTransform> transform;
-    hr = ActivateDolbyVisionP5RendererEffect(transform.GetAddressOf());
-    if (FAILED(hr))
-    {
-      CLog::LogF(LOGERROR, "MFDV: P5 renderer effect activation failed: {:#x}",
-                 static_cast<uint32_t>(hr));
-      return false;
-    }
-    Microsoft::WRL::ComPtr<IMFAttributes> transformAttributes;
-    hr = transform->GetAttributes(transformAttributes.GetAddressOf());
-    if (SUCCEEDED(hr))
-      hr = transformAttributes->SetUINT32(kDolbyVisionProfileAttribute, 5);
-    if (SUCCEEDED(hr))
-      hr = transformAttributes->SetString(kDolbyVisionDisplayNameAttribute,
-                                          L"Dolby Vision Profile 5");
-    if (FAILED(hr))
-    {
-      CLog::LogF(LOGERROR, "MFDV: P5 renderer effect configuration failed: {:#x}",
-                 static_cast<uint32_t>(hr));
-      return false;
-    }
-    hr = m_engineEx->InsertVideoEffect(transform.Get(), FALSE);
-    if (FAILED(hr))
-    {
-      CLog::LogF(LOGERROR, "MFDV: P5 renderer effect insertion failed: {:#x}",
-                 static_cast<uint32_t>(hr));
-      return false;
-    }
-    CLog::LogF(LOGINFO, "MFDV: P5 renderer effect inserted into Media Engine");
-  }
+  CLog::LogF(LOGINFO, "MFDV: P5 renderer effect selected by Video Processor profile dvhe.05");
 
   DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
   swapChainDesc.Width = width;

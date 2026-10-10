@@ -17,8 +17,6 @@
 #include <wrl/client.h>
 #include <wrl/implements.h>
 
-HRESULT ActivateDolbyVisionP5RendererEffect(IMFTransform** transform);
-
 class CMFPacketStream;
 
 class CMFPacketSource final
