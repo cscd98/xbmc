@@ -9,6 +9,7 @@
 #include "DVDVideoCodecMF.h"
 
 #include "DVDCodecs/DVDFactoryCodec.h"
+#include "rendering/dx/DeviceResources.h"
 #include "ServiceBroker.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -16,12 +17,155 @@
 #include "utils/log.h"
 
 #include <algorithm>
+#include <cwchar>
+
+#include <mfapi.h>
+#include <mferror.h>
+#include <mfobjects.h>
+#include <mftransform.h>
+#include <propvarutil.h>
+#include <wrl/client.h>
 
 namespace
 {
+using Microsoft::WRL::ComPtr;
+
+constexpr GUID CLSID_DV_RENDERER_CATEGORY =
+{
+    0x145cd8b4, 0x92f4, 0x4b23,
+    {0x8a, 0xe7, 0xe0, 0xdf, 0x06, 0xc2, 0xda, 0x95}
+};
+
+constexpr GUID MFT_ENUM_VIDEO_RENDERER_EXTENSION_PROFILE =
+{
+    0x62c56928, 0x9a4e, 0x443b,
+    {0xb9, 0xdc, 0xca, 0xc8, 0x30, 0xc2, 0x41, 0x00}
+};
+
+constexpr GUID DV_ATTR_UINT32 =
+{
+    0x851745d5, 0xc3d6, 0x476d,
+    {0x95, 0x27, 0x49, 0x8e, 0xf2, 0xd1, 0x0d, 0x18}
+};
+
+constexpr GUID DV_ATTR_DISPLAY_NAME =
+{
+    0x39570660, 0x4f1c, 0x45d8,
+    {0x9b, 0x0d, 0x0e, 0xf6, 0x74, 0x85, 0x3f, 0x3a}
+};
+
 // Bring-up switch: true = take every HEVC stream that has an hvcC (to test the pipeline
 // with non-DV files). Set to false for release: then only Dolby Vision profile 5.
 constexpr bool kBringUpAcceptAllHevc = true;
+
+HRESULT FindDolbyVisionP5Transform(IMFTransform** result)
+{
+  if (!result)
+    return E_POINTER;
+
+  *result = nullptr;
+
+  IMFActivate** activations = nullptr;
+  UINT32 count = 0;
+  HRESULT hr = MFTEnumEx(CLSID_DV_RENDERER_CATEGORY, MFT_ENUM_FLAG_SORTANDFILTER, nullptr,
+                         nullptr, &activations, &count);
+  if (FAILED(hr))
+    return hr;
+
+  HRESULT resultHr = MF_E_TOPO_CODEC_NOT_FOUND;
+  for (UINT32 i = 0; i < count; ++i)
+  {
+    PROPVARIANT value;
+    PropVariantInit(&value);
+    hr = activations[i]->GetItem(MFT_ENUM_VIDEO_RENDERER_EXTENSION_PROFILE, &value);
+
+    bool matches = false;
+    if (SUCCEEDED(hr) && value.vt == (VT_VECTOR | VT_LPWSTR))
+    {
+      for (ULONG j = 0; j < value.calpwstr.cElems; ++j)
+      {
+        const wchar_t* profile = value.calpwstr.pElems[j];
+        if (profile && _wcsicmp(profile, L"dvhe.05") == 0)
+        {
+          matches = true;
+          break;
+        }
+      }
+    }
+    PropVariantClear(&value);
+
+    if (matches)
+    {
+      ComPtr<IMFTransform> transform;
+      hr = activations[i]->ActivateObject(IID_PPV_ARGS(transform.GetAddressOf()));
+      if (SUCCEEDED(hr))
+      {
+        *result = transform.Detach();
+        resultHr = S_OK;
+        break;
+      }
+      resultHr = hr;
+    }
+  }
+
+  for (UINT32 i = 0; i < count; ++i)
+    activations[i]->Release();
+  CoTaskMemFree(activations);
+  return resultHr;
+}
+
+HRESULT InitializeDVTransform(IMFTransform* transform,
+                              ID3D11Device* device,
+                              UINT32 attributeValue,
+                              const wchar_t* displayName)
+{
+  if (!transform || !device)
+    return E_INVALIDARG;
+
+  UINT resetToken = 0;
+  ComPtr<IMFDXGIDeviceManager> manager;
+  HRESULT hr = MFCreateDXGIDeviceManager(&resetToken, manager.GetAddressOf());
+  if (FAILED(hr))
+    return hr;
+
+  hr = manager->ResetDevice(device, resetToken);
+  if (FAILED(hr))
+    return hr;
+
+  hr = transform->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
+                                 reinterpret_cast<ULONG_PTR>(manager.Get()));
+  if (FAILED(hr))
+    return hr;
+
+  ComPtr<IMFAttributes> attributes;
+  hr = transform->GetAttributes(attributes.GetAddressOf());
+  if (FAILED(hr))
+    return hr;
+
+  hr = attributes->SetUINT32(DV_ATTR_UINT32, attributeValue);
+  if (FAILED(hr))
+    return hr;
+
+  if (displayName && *displayName)
+    hr = attributes->SetString(DV_ATTR_DISPLAY_NAME, displayName);
+
+  return hr;
+}
+
+HRESULT CheckDolbyVisionP5Transform()
+{
+  ComPtr<IMFTransform> transform;
+  HRESULT hr = FindDolbyVisionP5Transform(transform.GetAddressOf());
+  if (FAILED(hr))
+    return hr;
+
+  const auto deviceResources = DX::DeviceResources::Get();
+  if (!deviceResources || !deviceResources->HasValidDevice())
+    return E_FAIL;
+
+  return InitializeDVTransform(transform.Get(), deviceResources->GetD3DDevice(), 5,
+                               L"Dolby Vision Profile 5");
+}
 
 bool IsIrap(const uint8_t* d, size_t n, int nalLen)
 {
@@ -80,8 +224,12 @@ bool CDVDVideoCodecMF::Open(CDVDStreamInfo& hints, CDVDCodecOptions&)
 
   if (isDv && hints.dovi.dv_profile == 5)
   {
-    CLog::LogF(LOGWARNING, "MFDV: DV Profile 5");
-    //return false;
+    const HRESULT hr = CheckDolbyVisionP5Transform();
+    if (SUCCEEDED(hr))
+      CLog::LogF(LOGINFO, "MFDV: Dolby Vision Profile 5 transform check succeeded");
+    else
+      CLog::LogF(LOGWARNING, "MFDV: Dolby Vision Profile 5 transform check failed: {:#x}",
+                 static_cast<uint32_t>(hr));
   }
 
   // hvcC -> Annex-B via Kodi's converter. dvhe carries VPS/SPS/PPS in-band, so an hvcC
