@@ -507,6 +507,9 @@ void CBitstreamConverter::Close()
   m_convertSize = 0;
 
   m_extraData = {};
+  for (auto& parameterSet : m_hevcParameterSets)
+    parameterSet.clear();
+  m_hevcSequenceHeader.clear();
 
   m_inputSize = 0;
   m_inputBuffer = NULL;
@@ -930,6 +933,25 @@ bool CBitstreamConverter::BitstreamConvert(uint8_t* pData,
     else
     {
       unit_type = (*buf >> 1) & 0x3f;
+      if (unit_type >= HEVC_NAL_VPS && unit_type <= HEVC_NAL_PPS)
+      {
+        auto& parameterSet = m_hevcParameterSets[unit_type - HEVC_NAL_VPS];
+        const bool firstOccurrence = parameterSet.empty();
+        parameterSet = {0, 0, 0, 1};
+        parameterSet.insert(parameterSet.end(), buf, buf + nal_size);
+        if (firstOccurrence)
+          CLog::LogF(LOGINFO, "CBitstreamConverter: captured HEVC parameter set NAL type {} ({} bytes)",
+                     unit_type, nal_size);
+        if (m_hevcSequenceHeader.empty() &&
+            std::all_of(m_hevcParameterSets.begin(), m_hevcParameterSets.end(),
+                        [](const auto& value) { return !value.empty(); }))
+        {
+          for (const auto& value : m_hevcParameterSets)
+            m_hevcSequenceHeader.insert(m_hevcSequenceHeader.end(), value.begin(), value.end());
+          CLog::LogF(LOGINFO, "CBitstreamConverter: assembled HEVC VPS/SPS/PPS sequence header ({} bytes)",
+                     m_hevcSequenceHeader.size());
+        }
+      }
     }
 
     // Don't add sps/pps if the unit already contain them
