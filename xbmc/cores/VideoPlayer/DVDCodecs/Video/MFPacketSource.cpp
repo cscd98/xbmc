@@ -26,7 +26,9 @@ using Microsoft::WRL::RuntimeClassFlags;
 using Microsoft::WRL::ClassicCom;
 
 constexpr size_t kMaxSamples = 12;
-constexpr GUID kVideoRendererExtensionProfile{
+constexpr GUID CLSID_DV_RENDERER_CATEGORY{0x145cd8b4, 0x92f4, 0x4b23,
+                      {0x8a, 0xe7, 0xe0, 0xdf, 0x06, 0xc2, 0xda, 0x95}};
+constexpr GUID kMftEnumVideoRendererExtensionProfile{
   0x62c56928, 0x9a4e, 0x443b, {0xb9, 0xdc, 0xca, 0xc8, 0x30, 0xc2, 0x41, 0x00}};
 
 class CMFPacketStream final
@@ -189,6 +191,54 @@ private:
   ComPtr<IMFMediaSource> m_source;
 };
 
+HRESULT FindDolbyVisionP5RendererEffect(IMFActivate** activation)
+{
+  if (!activation)
+    return E_POINTER;
+  *activation = nullptr;
+
+  IMFActivate** activations = nullptr;
+  UINT32 count = 0;
+  HRESULT hr = MFTEnumEx(CLSID_DV_RENDERER_CATEGORY, MFT_ENUM_FLAG_SORTANDFILTER, nullptr,
+                         nullptr, &activations, &count);
+  if (FAILED(hr))
+    return hr;
+
+  HRESULT result = MF_E_TOPO_CODEC_NOT_FOUND;
+  for (UINT32 i = 0; i < count; ++i)
+  {
+    PROPVARIANT value;
+    PropVariantInit(&value);
+    hr = activations[i]->GetItem(kMftEnumVideoRendererExtensionProfile, &value);
+    bool matches = false;
+    if (SUCCEEDED(hr) && value.vt == (VT_VECTOR | VT_LPWSTR))
+    {
+      for (ULONG j = 0; j < value.calpwstr.cElems; ++j)
+      {
+        const wchar_t* profile = value.calpwstr.pElems[j];
+        if (profile && _wcsicmp(profile, L"dvhe.05") == 0)
+        {
+          matches = true;
+          break;
+        }
+      }
+    }
+    PropVariantClear(&value);
+    if (!matches)
+      continue;
+
+    activations[i]->AddRef();
+    *activation = activations[i];
+    result = S_OK;
+    break;
+  }
+
+  for (UINT32 i = 0; i < count; ++i)
+    activations[i]->Release();
+  CoTaskMemFree(activations);
+  return result;
+}
+
 HRESULT CMFPacketSource::Initialize(unsigned width, unsigned height, unsigned fpsRate,
                                     unsigned fpsScale, const uint8_t* sequenceHeader,
                                     size_t sequenceHeaderSize)
@@ -222,14 +272,18 @@ HRESULT CMFPacketSource::CreateStreamDescriptorLocked()
   if (SUCCEEDED(hr))
     hr = mediaType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_HEVC);
   if (SUCCEEDED(hr))
-    hr = mediaType->SetString(kVideoRendererExtensionProfile, L"dvhe.05");
-  if (SUCCEEDED(hr))
     hr = mediaType->SetUINT64(MF_MT_FRAME_SIZE, Pack2UINT32AsUINT64(m_width, m_height));
   if (SUCCEEDED(hr) && m_fpsRate && m_fpsScale)
     hr = mediaType->SetUINT64(MF_MT_FRAME_RATE,
                               Pack2UINT32AsUINT64(m_fpsRate, m_fpsScale));
   if (SUCCEEDED(hr))
     hr = mediaType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+  if (SUCCEEDED(hr))
+    hr = mediaType->SetUINT32(MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT2020);
+  if (SUCCEEDED(hr))
+    hr = mediaType->SetUINT32(MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_2084);
+  if (SUCCEEDED(hr))
+    hr = mediaType->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255);
   if (SUCCEEDED(hr) && !m_sequenceHeader.empty())
     hr = mediaType->SetBlob(MF_MT_MPEG_SEQUENCE_HEADER, m_sequenceHeader.data(),
                             static_cast<UINT32>(m_sequenceHeader.size()));
