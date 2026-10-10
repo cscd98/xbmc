@@ -22,6 +22,7 @@
 #include "MFPacketSource.h"
 
 #include <dxgi1_5.h>
+#include <mftransform.h>
 #include <wrl/client.h>
 
 class CMFSession
@@ -49,6 +50,7 @@ public:
 
 private:
   void CreateSource();
+  bool InitializeDolbyVisionTransform();
   HRESULT StartNativeEngineSource();
   bool CreateNativeEngine(unsigned width, unsigned height, unsigned fpsRate, unsigned fpsScale,
                           const winrt::hstring& rendererExtensionProfile,
@@ -58,6 +60,7 @@ private:
   Microsoft::WRL::ComPtr<IMFMediaEngine> m_engine;
   Microsoft::WRL::ComPtr<IMFMediaEngineEx> m_engineEx;
   Microsoft::WRL::ComPtr<IMFMediaEngineNotify> m_engineNotify;
+  Microsoft::WRL::ComPtr<IMFTransform> m_dvTransform;
   Microsoft::WRL::ComPtr<CMFPacketSource> m_packetSource;
   Microsoft::WRL::ComPtr<IDXGISwapChain1> m_videoSwapChain;
   Microsoft::WRL::ComPtr<IDXGISwapChain3> m_videoSwapChain3;

@@ -235,6 +235,84 @@ bool CMFSession::OpenWith(const winrt::hstring& subtype, unsigned w, unsigned h,
   }
 }
 
+bool CMFSession::InitializeDolbyVisionTransform()
+{
+  m_dvTransform.Reset();
+
+  Microsoft::WRL::ComPtr<IMFActivate> effectActivation;
+  HRESULT hr = FindDolbyVisionP5RendererEffect(effectActivation.GetAddressOf());
+  if (FAILED(hr))
+  {
+    CLog::LogF(LOGWARNING, "MFDV: Profile 5 transform discovery failed: {:#x}",
+               static_cast<uint32_t>(hr));
+    return false;
+  }
+
+  hr = effectActivation->SetUINT32(kDolbyVisionProfileAttribute, 5);
+  if (SUCCEEDED(hr))
+    hr = effectActivation->SetString(kDolbyVisionDisplayNameAttribute,
+                                     L"Dolby Vision Profile 5");
+  if (FAILED(hr))
+  {
+    CLog::LogF(LOGERROR, "MFDV: P5 renderer effect configuration failed: {:#x}",
+               static_cast<uint32_t>(hr));
+    return false;
+  }
+
+  hr = effectActivation->ActivateObject(IID_PPV_ARGS(m_dvTransform.GetAddressOf()));
+  if (FAILED(hr))
+  {
+    CLog::LogF(LOGERROR, "MFDV: P5 transform activation failed: {:#x}",
+               static_cast<uint32_t>(hr));
+    m_dvTransform.Reset();
+    return false;
+  }
+
+  Microsoft::WRL::ComPtr<IMFAttributes> transformAttributes;
+  hr = m_dvTransform->GetAttributes(transformAttributes.GetAddressOf());
+  UINT32 d3d11Aware = FALSE;
+  if (SUCCEEDED(hr))
+    hr = transformAttributes->GetUINT32(MF_SA_D3D11_AWARE, &d3d11Aware);
+  if (SUCCEEDED(hr) && d3d11Aware)
+  {
+    if (!m_dxgiManager)
+    {
+      CLog::LogF(LOGERROR, "MFDV: D3D11-aware P5 transform has no DXGI device manager");
+      m_dvTransform.Reset();
+      return false;
+    }
+    hr = m_dvTransform->ProcessMessage(
+        MFT_MESSAGE_SET_D3D_MANAGER,
+        reinterpret_cast<ULONG_PTR>(m_dxgiManager.Get()));
+    if (FAILED(hr))
+    {
+      CLog::LogF(LOGERROR, "MFDV: P5 transform rejected DXGI device manager: {:#x}",
+                 static_cast<uint32_t>(hr));
+      m_dvTransform.Reset();
+      return false;
+    }
+    CLog::LogF(LOGINFO, "MFDV: Set Kodi DXGI device manager on D3D11-aware P5 transform");
+  }
+  else
+  {
+    CLog::LogF(LOGWARNING,
+               "MFDV: P5 transform did not report MF_SA_D3D11_AWARE (query hr={:#x}, value={})",
+               static_cast<uint32_t>(hr), d3d11Aware);
+  }
+
+  hr = m_engineEx->InsertVideoEffect(m_dvTransform.Get(), FALSE);
+  if (FAILED(hr))
+  {
+    CLog::LogF(LOGERROR, "MFDV: P5 transform insertion failed: {:#x}",
+               static_cast<uint32_t>(hr));
+    m_dvTransform.Reset();
+    return false;
+  }
+
+  CLog::LogF(LOGINFO, "MFDV: P5 IMFTransform activated and inserted into Media Engine");
+  return true;
+}
+
 bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fpsRate,
                                    unsigned fpsScale,
                                    const winrt::hstring& rendererExtensionProfile,
@@ -353,32 +431,8 @@ bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fp
   if (FAILED(hr))
     return false;
 
-  Microsoft::WRL::ComPtr<IMFActivate> effectActivation;
-  hr = FindDolbyVisionP5RendererEffect(effectActivation.GetAddressOf());
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: P5 renderer effect activation lookup failed: {:#x}",
-               static_cast<uint32_t>(hr));
+  if (!InitializeDolbyVisionTransform())
     return false;
-  }
-  hr = effectActivation->SetUINT32(kDolbyVisionProfileAttribute, 5);
-  if (SUCCEEDED(hr))
-    hr = effectActivation->SetString(kDolbyVisionDisplayNameAttribute,
-                                     L"Dolby Vision Profile 5");
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: P5 renderer effect configuration failed: {:#x}",
-               static_cast<uint32_t>(hr));
-    return false;
-  }
-  hr = m_engineEx->InsertVideoEffect(effectActivation.Get(), FALSE);
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: P5 renderer effect insertion failed: {:#x}",
-               static_cast<uint32_t>(hr));
-    return false;
-  }
-  CLog::LogF(LOGINFO, "MFDV: P5 renderer effect inserted into Media Engine");
 
   DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
   swapChainDesc.Width = width;
@@ -513,6 +567,7 @@ void CMFSession::Close()
   CMFCompositionHost::Get().HideVideo();
   if (m_engine)
     m_engine->Shutdown();
+  m_dvTransform.Reset();
   m_engineEx.Reset();
   m_engine.Reset();
   m_engineNotify.Reset();
