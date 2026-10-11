@@ -107,6 +107,24 @@ bool CDVDVideoCodecMF::Open(CDVDStreamInfo& hints, CDVDCodecOptions&)
   m_hints = hints;
   m_inputPackets = 0;
   m_session = CMFSession::Acquire();
+  if (!rendererExtensionProfile.empty())
+  {
+    // ISO dvcC record: version, profile/level/flags, compatibility id, reserved
+    const auto& dovi = hints.dovi;
+    const uint16_t profileLevel = static_cast<uint16_t>(
+        (dovi.dv_profile << 9) | (dovi.dv_level << 3) | (dovi.rpu_present_flag << 2) |
+        (dovi.el_present_flag << 1) | dovi.bl_present_flag);
+    std::vector<uint8_t> config(24, 0);
+    config[0] = static_cast<uint8_t>(dovi.dv_version_major);
+    config[1] = static_cast<uint8_t>(dovi.dv_version_minor);
+    config[2] = static_cast<uint8_t>(profileLevel >> 8);
+    config[3] = static_cast<uint8_t>(profileLevel & 0xff);
+    config[4] = static_cast<uint8_t>(dovi.dv_bl_signal_compatibility_id << 4);
+    CLog::LogF(LOGINFO, "MFDV: dvcC profile {} level {} rpu {} el {} bl {} compat {}",
+               dovi.dv_profile, dovi.dv_level, dovi.rpu_present_flag, dovi.el_present_flag,
+               dovi.bl_present_flag, dovi.dv_bl_signal_compatibility_id);
+    m_session->SetDolbyVisionConfig(std::move(config));
+  }
   if (!m_session->Open(hints.width, hints.height, hints.fpsrate, hints.fpsscale,
                        paramSets, paramSize, candidates, rendererExtensionProfile))
   {

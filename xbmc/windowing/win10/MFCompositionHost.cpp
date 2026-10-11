@@ -114,6 +114,21 @@ void CMFCompositionHost::ShowVideoSwapChain(IDXGISwapChain1* swapChain)
   m_video.IsVisible(true);
 }
 
+void CMFCompositionHost::ShowVideoSwapChainHandle(HANDLE swapChainHandle)
+{
+  if (!swapChainHandle)
+    return;
+
+  auto interop = m_compositor.as<ABI::Windows::UI::Composition::ICompositorInterop>();
+  winrt::com_ptr<ABI::Windows::UI::Composition::ICompositionSurface> abiSurface;
+  winrt::check_hresult(interop->CreateCompositionSurfaceForHandle(swapChainHandle, abiSurface.put()));
+
+  auto brush = m_compositor.CreateSurfaceBrush(abiSurface.as<ICompositionSurface>());
+  brush.Stretch(CompositionStretch::Fill);
+  m_video.Brush(brush);
+  m_video.IsVisible(true);
+}
+
 void CMFCompositionHost::SetVideoRect(float x, float y, float w, float h)
 {
   m_video.Offset({x, y, 0.0f});

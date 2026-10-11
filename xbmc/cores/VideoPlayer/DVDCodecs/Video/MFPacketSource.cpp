@@ -30,6 +30,8 @@ constexpr GUID CLSID_DV_RENDERER_CATEGORY{0x145cd8b4, 0x92f4, 0x4b23,
                       {0x8a, 0xe7, 0xe0, 0xdf, 0x06, 0xc2, 0xda, 0x95}};
 constexpr GUID kMftEnumVideoRendererExtensionProfile{
   0x62c56928, 0x9a4e, 0x443b, {0xb9, 0xdc, 0xca, 0xc8, 0x30, 0xc2, 0x41, 0x00}};
+constexpr GUID kMediaTypeVideoRendererExtensionProfile{
+  0x8437d4b9, 0xd448, 0x4fcd, {0x9b, 0x6b, 0x83, 0x9b, 0xf9, 0x6c, 0x77, 0x98}};
 
 class CMFPacketStream final
   : public RuntimeClass<RuntimeClassFlags<ClassicCom>, IMFMediaStream>
@@ -240,8 +242,9 @@ HRESULT FindDolbyVisionP5RendererEffect(IMFActivate** activation)
 }
 
 HRESULT CMFPacketSource::Initialize(unsigned width, unsigned height, unsigned fpsRate,
-                                    unsigned fpsScale, const uint8_t* sequenceHeader,
-                                    size_t sequenceHeaderSize)
+                                    unsigned fpsScale,
+                                    const wchar_t* rendererExtensionProfile,
+                                    const uint8_t* sequenceHeader, size_t sequenceHeaderSize)
 {
   if (width == 0 || height == 0)
     return E_INVALIDARG;
@@ -250,6 +253,8 @@ HRESULT CMFPacketSource::Initialize(unsigned width, unsigned height, unsigned fp
   m_height = height;
   m_fpsRate = fpsRate;
   m_fpsScale = fpsScale;
+  if (rendererExtensionProfile)
+    m_rendererExtensionProfile = rendererExtensionProfile;
   if (sequenceHeader && sequenceHeaderSize)
   {
     m_sequenceHeader.assign(sequenceHeader, sequenceHeader + sequenceHeaderSize);
@@ -262,6 +267,11 @@ HRESULT CMFPacketSource::Initialize(unsigned width, unsigned height, unsigned fp
   return MFCreateEventQueue(&m_eventQueue);
 }
 
+void CMFPacketSource::SetDolbyVisionConfig(const uint8_t* data, size_t size)
+{
+  m_dolbyVisionConfig.assign(data, data + size);
+}
+
 HRESULT CMFPacketSource::CreateStreamDescriptorLocked()
 {
   ComPtr<IMFMediaType> mediaType;
@@ -271,6 +281,9 @@ HRESULT CMFPacketSource::CreateStreamDescriptorLocked()
   hr = mediaType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
   if (SUCCEEDED(hr))
     hr = mediaType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_HEVC);
+  if (SUCCEEDED(hr) && !m_rendererExtensionProfile.empty())
+    hr = mediaType->SetString(kMediaTypeVideoRendererExtensionProfile,
+                              m_rendererExtensionProfile.c_str());
   if (SUCCEEDED(hr))
     hr = mediaType->SetUINT64(MF_MT_FRAME_SIZE, Pack2UINT32AsUINT64(m_width, m_height));
   if (SUCCEEDED(hr) && m_fpsRate && m_fpsScale)
@@ -287,6 +300,9 @@ HRESULT CMFPacketSource::CreateStreamDescriptorLocked()
   if (SUCCEEDED(hr) && !m_sequenceHeader.empty())
     hr = mediaType->SetBlob(MF_MT_MPEG_SEQUENCE_HEADER, m_sequenceHeader.data(),
                             static_cast<UINT32>(m_sequenceHeader.size()));
+  if (SUCCEEDED(hr) && !m_dolbyVisionConfig.empty())
+    hr = mediaType->SetBlob(MF_MT_USER_DATA, m_dolbyVisionConfig.data(),
+                            static_cast<UINT32>(m_dolbyVisionConfig.size()));
   if (FAILED(hr))
     return hr;
 

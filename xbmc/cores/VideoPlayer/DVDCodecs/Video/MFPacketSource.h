@@ -10,6 +10,7 @@
 
 #include <deque>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include <mfmediaengine.h>
@@ -27,7 +28,9 @@ class CMFPacketSource final
 {
 public:
   HRESULT Initialize(unsigned width, unsigned height, unsigned fpsRate, unsigned fpsScale,
+                     const wchar_t* rendererExtensionProfile,
                      const uint8_t* sequenceHeader, size_t sequenceHeaderSize);
+  void SetDolbyVisionConfig(const uint8_t* data, size_t size);
   HRESULT CreateEngineExtension(IMFMediaEngineExtension** extension);
   bool CanQueue();
   HRESULT SetSequenceHeader(const uint8_t* data, size_t size);
@@ -56,7 +59,9 @@ private:
   Microsoft::WRL::ComPtr<IMFMediaStream> m_stream;
   std::deque<Microsoft::WRL::ComPtr<IMFSample>> m_samples;
   std::deque<Microsoft::WRL::ComPtr<IUnknown>> m_tokens;
+  std::wstring m_rendererExtensionProfile;
   std::vector<uint8_t> m_sequenceHeader;
+  std::vector<uint8_t> m_dolbyVisionConfig;
   std::mutex m_mutex;
   unsigned m_width{0};
   unsigned m_height{0};

@@ -22,7 +22,6 @@
 #include "MFPacketSource.h"
 
 #include <dxgi1_5.h>
-#include <mftransform.h>
 #include <wrl/client.h>
 
 class CMFSession
@@ -42,6 +41,7 @@ public:
   void Restart();
   bool CanQueue();
   HRESULT SetSequenceHeader(const uint8_t* data, size_t size);
+  void SetDolbyVisionConfig(std::vector<uint8_t> config) { m_nativeDolbyVisionConfig = std::move(config); }
   void Push(const uint8_t* d, size_t n, double dtsUs, double ptsUs, double durUs, bool key);
   void AttachSurface(float srcW, float srcH);
   void SetDestRect(float x, float y, float w, float h);
@@ -50,29 +50,29 @@ public:
 
 private:
   void CreateSource();
-  bool InitializeDolbyVisionTransform();
+  bool VerifyDolbyVisionRendererEffect();
   HRESULT StartNativeEngineSource();
   bool CreateNativeEngine(unsigned width, unsigned height, unsigned fpsRate, unsigned fpsScale,
                           const winrt::hstring& rendererExtensionProfile,
                           const uint8_t* sequenceHeader, size_t sequenceHeaderSize);
   void ApplyRate();
+  bool ShowEngineSwapChain();
 
   Microsoft::WRL::ComPtr<IMFMediaEngine> m_engine;
   Microsoft::WRL::ComPtr<IMFMediaEngineEx> m_engineEx;
   Microsoft::WRL::ComPtr<IMFMediaEngineNotify> m_engineNotify;
-  Microsoft::WRL::ComPtr<IMFTransform> m_dvTransform;
   Microsoft::WRL::ComPtr<CMFPacketSource> m_packetSource;
-  Microsoft::WRL::ComPtr<IDXGISwapChain1> m_videoSwapChain;
-  Microsoft::WRL::ComPtr<IDXGISwapChain3> m_videoSwapChain3;
   Microsoft::WRL::ComPtr<IMFDXGIDeviceManager> m_dxgiManager;
   unsigned m_nativeWidth{0};
   unsigned m_nativeHeight{0};
   unsigned m_nativeFpsRate{0};
   unsigned m_nativeFpsScale{0};
   std::vector<uint8_t> m_nativeSequenceHeader;
+  std::vector<uint8_t> m_nativeDolbyVisionConfig;
   winrt::hstring m_nativeRendererProfile;
   bool m_useNativeEngine{false};
   bool m_nativeSourceStarted{false};
+  bool m_videoSurfaceShown{false};
   bool m_mfStarted{false};
 
   winrt::Windows::Media::Playback::MediaPlayer m_player{nullptr};
@@ -93,6 +93,8 @@ private:
 
   std::atomic<double> m_baseUs{-1.0};
   std::atomic<uint64_t> m_pushed{0}, m_delivered{0}, m_rendered{0};
+  std::atomic<uint64_t> m_swapChainAttempts{0};
+  std::atomic<uint32_t> m_engineEvents{0};
 
   std::mutex m_evtMtx;
   std::condition_variable m_evtCv;

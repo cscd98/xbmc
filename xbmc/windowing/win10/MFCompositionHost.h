@@ -27,6 +27,7 @@ public:
   void ClearGuiSwapChainHdrMetaData();
   void ShowVideo(const winrt::Windows::Media::Playback::MediaPlayerSurface& surface);
   void ShowVideoSwapChain(IDXGISwapChain1* swapChain);
+  void ShowVideoSwapChainHandle(HANDLE swapChainHandle);
   void SetVideoRect(float x, float y, float w, float h);
   void HideVideo();
   void SetOutputSize(float outW, float outH, float logW, float logH);

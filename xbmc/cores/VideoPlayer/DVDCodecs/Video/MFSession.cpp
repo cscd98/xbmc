@@ -35,10 +35,10 @@ using namespace std::chrono_literals;
 namespace
 {
 constexpr size_t kMaxQueue = 12;
-constexpr GUID kDolbyVisionProfileAttribute{0x851745d5, 0xc3d6, 0x476d,
-                                            {0x95, 0x27, 0x49, 0x8e, 0xf2, 0xd1, 0x0d, 0x18}};
-constexpr GUID kDolbyVisionDisplayNameAttribute{0x39570660, 0x4f1c, 0x45d8,
-                                                {0x9b, 0x0d, 0x0e, 0xf6, 0x74, 0x85, 0x3f, 0x3a}};
+// Diagnostic: true plays without selecting the Dolby Vision renderer effect (wrong colours expected).
+constexpr bool kDiagnosticBypassRendererEffect = false;
+// Diagnostic: true leaves the HDMI output out of Dolby Vision low-latency mode.
+constexpr bool kDiagnosticSkipDolbyVisionOutput = false;
 
 class CMFEngineNotify final
   : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
@@ -113,7 +113,9 @@ bool CMFSession::OpenWith(const winrt::hstring& subtype, unsigned w, unsigned h,
       CLog::LogF(LOGDEBUG,
         "MFDV composition: calling swap chain to clear hdr meta data");
       CMFCompositionHost::Get().ClearGuiSwapChainHdrMetaData();
-      if (!CMFCompositionHost::Get().SetDolbyVisionOutput(true))
+      if (kDiagnosticSkipDolbyVisionOutput)
+        CLog::LogF(LOGWARNING, "MFDV: DIAGNOSTIC - HDMI Dolby Vision output not requested");
+      else if (!CMFCompositionHost::Get().SetDolbyVisionOutput(true))
       {
         CLog::LogF(LOGWARNING, "MFDV: Failed to enable Dolby Vision output");
       }
@@ -235,81 +237,18 @@ bool CMFSession::OpenWith(const winrt::hstring& subtype, unsigned w, unsigned h,
   }
 }
 
-bool CMFSession::InitializeDolbyVisionTransform()
+bool CMFSession::VerifyDolbyVisionRendererEffect()
 {
-  m_dvTransform.Reset();
-
   Microsoft::WRL::ComPtr<IMFActivate> effectActivation;
-  HRESULT hr = FindDolbyVisionP5RendererEffect(effectActivation.GetAddressOf());
+  const HRESULT hr = FindDolbyVisionP5RendererEffect(effectActivation.GetAddressOf());
   if (FAILED(hr))
   {
-    CLog::LogF(LOGWARNING, "MFDV: Profile 5 transform discovery failed: {:#x}",
+    CLog::LogF(LOGERROR, "MFDV: Profile 5 renderer effect not available: {:#x}",
                static_cast<uint32_t>(hr));
     return false;
   }
 
-  hr = effectActivation->SetUINT32(kDolbyVisionProfileAttribute, 5);
-  if (SUCCEEDED(hr))
-    hr = effectActivation->SetString(kDolbyVisionDisplayNameAttribute,
-                                     L"Dolby Vision Profile 5");
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: P5 renderer effect configuration failed: {:#x}",
-               static_cast<uint32_t>(hr));
-    return false;
-  }
-
-  hr = effectActivation->ActivateObject(IID_PPV_ARGS(m_dvTransform.GetAddressOf()));
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: P5 transform activation failed: {:#x}",
-               static_cast<uint32_t>(hr));
-    m_dvTransform.Reset();
-    return false;
-  }
-
-  Microsoft::WRL::ComPtr<IMFAttributes> transformAttributes;
-  hr = m_dvTransform->GetAttributes(transformAttributes.GetAddressOf());
-  UINT32 d3d11Aware = FALSE;
-  if (SUCCEEDED(hr))
-    hr = transformAttributes->GetUINT32(MF_SA_D3D11_AWARE, &d3d11Aware);
-  if (SUCCEEDED(hr) && d3d11Aware)
-  {
-    if (!m_dxgiManager)
-    {
-      CLog::LogF(LOGERROR, "MFDV: D3D11-aware P5 transform has no DXGI device manager");
-      m_dvTransform.Reset();
-      return false;
-    }
-    hr = m_dvTransform->ProcessMessage(
-        MFT_MESSAGE_SET_D3D_MANAGER,
-        reinterpret_cast<ULONG_PTR>(m_dxgiManager.Get()));
-    if (FAILED(hr))
-    {
-      CLog::LogF(LOGERROR, "MFDV: P5 transform rejected DXGI device manager: {:#x}",
-                 static_cast<uint32_t>(hr));
-      m_dvTransform.Reset();
-      return false;
-    }
-    CLog::LogF(LOGINFO, "MFDV: Set Kodi DXGI device manager on D3D11-aware P5 transform");
-  }
-  else
-  {
-    CLog::LogF(LOGWARNING,
-               "MFDV: P5 transform did not report MF_SA_D3D11_AWARE (query hr={:#x}, value={})",
-               static_cast<uint32_t>(hr), d3d11Aware);
-  }
-
-  hr = m_engineEx->InsertVideoEffect(m_dvTransform.Get(), FALSE);
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: P5 transform insertion failed: {:#x}",
-               static_cast<uint32_t>(hr));
-    m_dvTransform.Reset();
-    return false;
-  }
-
-  CLog::LogF(LOGINFO, "MFDV: P5 IMFTransform activated and inserted into Media Engine");
+  CLog::LogF(LOGINFO, "MFDV: Profile 5 renderer effect available; selected by stream profile");
   return true;
 }
 
@@ -323,6 +262,8 @@ bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fp
   m_slew = 1.0;
   m_started = false;
   m_pushed = m_delivered = m_rendered = 0;
+  m_swapChainAttempts = 0;
+  m_engineEvents = 0;
   m_nativeWidth = width;
   m_nativeHeight = height;
   m_nativeFpsRate = fpsRate;
@@ -343,7 +284,14 @@ bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fp
   m_packetSource = Microsoft::WRL::Make<CMFPacketSource>();
   if (!m_packetSource)
     return false;
-  hr = m_packetSource->Initialize(width, height, fpsRate, fpsScale,
+  const winrt::hstring streamProfile =
+      kDiagnosticBypassRendererEffect ? winrt::hstring{} : rendererExtensionProfile;
+  if (kDiagnosticBypassRendererEffect)
+    CLog::LogF(LOGWARNING, "MFDV: DIAGNOSTIC - Dolby Vision renderer effect not selected");
+  else if (!m_nativeDolbyVisionConfig.empty())
+    m_packetSource->SetDolbyVisionConfig(m_nativeDolbyVisionConfig.data(),
+                                         m_nativeDolbyVisionConfig.size());
+  hr = m_packetSource->Initialize(width, height, fpsRate, fpsScale, streamProfile.c_str(),
                                   m_nativeSequenceHeader.data(), m_nativeSequenceHeader.size());
   if (FAILED(hr))
   {
@@ -360,6 +308,9 @@ bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fp
   auto notify = Microsoft::WRL::Make<CMFEngineNotify>([this](DWORD event, DWORD_PTR param1,
                                                               DWORD param2)
   {
+    if (m_engineEvents.fetch_add(1) < 32)
+      CLog::LogF(LOGINFO, "MFDV: Media Engine event {} (param1 {:#x}, param2 {:#x})", event,
+                 static_cast<uint32_t>(param1), static_cast<uint32_t>(param2));
     if (event == MF_MEDIA_ENGINE_EVENT_ERROR ||
         event == MF_MEDIA_ENGINE_EVENT_STREAMRENDERINGERROR)
     {
@@ -390,7 +341,7 @@ bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fp
     hr = attributes->SetUnknown(MF_MEDIA_ENGINE_EXTENSION, extension.Get());
   if (SUCCEEDED(hr))
     hr = attributes->SetUINT32(MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT,
-                               DXGI_FORMAT_R10G10B10A2_UNORM);
+                               DXGI_FORMAT_B8G8R8A8_UNORM);
   if (FAILED(hr))
     return false;
 
@@ -431,53 +382,20 @@ bool CMFSession::CreateNativeEngine(unsigned width, unsigned height, unsigned fp
   if (FAILED(hr))
     return false;
 
-  if (!InitializeDolbyVisionTransform())
+  if (!kDiagnosticBypassRendererEffect && !VerifyDolbyVisionRendererEffect())
     return false;
 
-  DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
-  swapChainDesc.Width = width;
-  swapChainDesc.Height = height;
-  swapChainDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-  swapChainDesc.SampleDesc.Count = 1;
-  swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-  swapChainDesc.BufferCount = 2;
-  swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
-  swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-  swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-  hr = deviceResources->GetIDXGIFactory2()->CreateSwapChainForComposition(
-      deviceResources->GetD3DDevice(), &swapChainDesc, nullptr,
-      m_videoSwapChain.GetAddressOf());
+  hr = m_engineEx->EnableWindowlessSwapchainMode(TRUE);
   if (FAILED(hr))
   {
-    CLog::LogF(LOGERROR, "MFDV: frame-server swap chain creation failed: {:#x}",
-               static_cast<uint32_t>(hr));
-    return false;
-  }
-
-  hr = m_videoSwapChain->QueryInterface(IID_PPV_ARGS(m_videoSwapChain3.GetAddressOf()));
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: frame-server swap chain does not support IDXGISwapChain3");
-    return false;
-  }
-  const auto colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
-  UINT support = 0;
-  hr = m_videoSwapChain3->CheckColorSpaceSupport(colorSpace, &support);
-  if (FAILED(hr) || !(support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT))
-  {
-    CLog::LogF(LOGERROR, "MFDV: frame-server swap chain does not support HDR10 color space");
-    return false;
-  }
-  hr = m_videoSwapChain3->SetColorSpace1(colorSpace);
-  if (FAILED(hr))
-  {
-    CLog::LogF(LOGERROR, "MFDV: could not set frame-server HDR color space: {:#x}",
+    CLog::LogF(LOGERROR, "MFDV: could not enable windowless swap-chain mode: {:#x}",
                static_cast<uint32_t>(hr));
     return false;
   }
 
   m_failed = m_opened = false;
   m_nativeSourceStarted = false;
+  m_videoSurfaceShown = false;
   m_useNativeEngine = true;
   CLog::LogF(LOGINFO,
              "MFDV: Native engine configured; deferring source load until sequence header and first sample are ready");
@@ -567,12 +485,10 @@ void CMFSession::Close()
   CMFCompositionHost::Get().HideVideo();
   if (m_engine)
     m_engine->Shutdown();
-  m_dvTransform.Reset();
   m_engineEx.Reset();
   m_engine.Reset();
   m_engineNotify.Reset();
-  m_videoSwapChain.Reset();
-  m_videoSwapChain3.Reset();
+  m_videoSurfaceShown = false;
   if (m_packetSource)
   {
     m_packetSource->Shutdown();
@@ -754,8 +670,8 @@ void CMFSession::AttachSurface(float srcW, float srcH)
   auto& host = CMFCompositionHost::Get();
   if (m_useNativeEngine)
   {
-    host.ShowVideoSwapChain(m_videoSwapChain.Get());
-    CLog::LogF(LOGINFO, "MFDV: Native Media Engine surface attached, source {}x{}", srcW, srcH);
+    ShowEngineSwapChain();
+    CLog::LogF(LOGINFO, "MFDV: Native Media Engine surface requested, source {}x{}", srcW, srcH);
     return;
   }
   m_player.SetSurfaceSize({srcW, srcH});
@@ -766,6 +682,39 @@ void CMFSession::AttachSurface(float srcW, float srcH)
 void CMFSession::SetDestRect(float x, float y, float w, float h)
 {
   CMFCompositionHost::Get().SetVideoRect(x, y, w, h);
+}
+
+bool CMFSession::ShowEngineSwapChain()
+{
+  if (m_videoSurfaceShown)
+    return true;
+
+  // Without a destination rectangle the windowless swap chain has no size to render into.
+  const MFVideoNormalizedRect sourceRect{0.0f, 0.0f, 1.0f, 1.0f};
+  const RECT destinationRect{0, 0, static_cast<LONG>(m_nativeWidth),
+                             static_cast<LONG>(m_nativeHeight)};
+  const MFARGB borderColor{0, 0, 0, 255};
+  const HRESULT updateHr = m_engineEx->UpdateVideoStream(&sourceRect, &destinationRect,
+                                                         &borderColor);
+
+  HANDLE swapChainHandle = nullptr;
+  const HRESULT hr = m_engineEx->GetVideoSwapchainHandle(&swapChainHandle);
+  const uint64_t attempt = ++m_swapChainAttempts;
+  if (FAILED(hr) || !swapChainHandle)
+  {
+    if (attempt <= 3 || attempt % 120 == 0)
+      CLog::LogF(LOGINFO,
+                 "MFDV: Media Engine swap chain not ready yet (hr {:#x}, update {:#x}, attempt {})",
+                 static_cast<uint32_t>(hr), static_cast<uint32_t>(updateHr), attempt);
+    return false;
+  }
+
+  CMFCompositionHost::Get().ShowVideoSwapChainHandle(swapChainHandle);
+  m_videoSurfaceShown = true;
+  CLog::LogF(LOGINFO,
+             "MFDV: Media Engine swap chain attached to the composition tree ({}x{}, update {:#x})",
+             m_nativeWidth, m_nativeHeight, static_cast<uint32_t>(updateHr));
+  return true;
 }
 
 void CMFSession::ApplyRate() // ctl lock held
@@ -833,7 +782,7 @@ void CMFSession::OnFrame(double ptsUs)
   {
     std::lock_guard l(m_ctlMtx);
     const double base = m_baseUs;
-    if (!m_engine || !m_videoSwapChain || base < 0 || ptsUs == m_lastPts)
+    if (!m_engine || base < 0 || ptsUs == m_lastPts)
       return;
     m_lastPts = ptsUs;
 
@@ -848,6 +797,9 @@ void CMFSession::OnFrame(double ptsUs)
       return;
     }
 
+    if (!m_videoSurfaceShown)
+      ShowEngineSwapChain();
+
     if (m_speed == DVD_PLAYSPEED_NORMAL)
     {
       const double engineTime = m_engine->GetCurrentTime();
@@ -858,123 +810,9 @@ void CMFSession::OnFrame(double ptsUs)
       ApplyRate();
     }
 
-    LONGLONG streamTime = 0;
-    HRESULT hr = m_engine->OnVideoStreamTick(&streamTime);
-    if (hr != S_OK)
-      return;
-
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> output;
-    const UINT bufferIndex = m_videoSwapChain3->GetCurrentBackBufferIndex();
-    hr = m_videoSwapChain->GetBuffer(bufferIndex, IID_PPV_ARGS(output.GetAddressOf()));
-    if (FAILED(hr))
-      return;
-
-    DXGI_SWAP_CHAIN_DESC1 desc{};
-    hr = m_videoSwapChain->GetDesc1(&desc);
-    if (FAILED(hr))
-      return;
-
-    const MFVideoNormalizedRect sourceRect{0.0f, 0.0f, 1.0f, 1.0f};
-    const RECT destinationRect{0, 0, static_cast<LONG>(desc.Width),
-                               static_cast<LONG>(desc.Height)};
-    const MFARGB borderColor{0, 0, 0, 0};
-    hr = m_engine->TransferVideoFrame(output.Get(), &sourceRect, &destinationRect, &borderColor);
-    const uint64_t nextFrame = m_rendered.load() + 1;
-    if (SUCCEEDED(hr) && (nextFrame == 1 || nextFrame % 120 == 0))
-    {
-      const auto deviceResources = DX::DeviceResources::Get();
-      D3D11_TEXTURE2D_DESC stagingDesc{};
-      stagingDesc.Width = 40;
-      stagingDesc.Height = 8;
-      stagingDesc.MipLevels = 1;
-      stagingDesc.ArraySize = 1;
-      stagingDesc.Format = desc.Format;
-      stagingDesc.SampleDesc.Count = 1;
-      stagingDesc.Usage = D3D11_USAGE_STAGING;
-      stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-      Microsoft::WRL::ComPtr<ID3D11Texture2D> staging;
-      HRESULT readbackHr = deviceResources->GetD3DDevice()->CreateTexture2D(
-          &stagingDesc, nullptr, staging.GetAddressOf());
-      if (SUCCEEDED(readbackHr))
-      {
-        constexpr UINT patchSize = 8;
-        const UINT xPositions[] = {desc.Width / 2 - patchSize / 2,
-                                   desc.Width / 4 - patchSize / 2,
-                                   3 * desc.Width / 4 - patchSize / 2,
-                                   desc.Width / 4 - patchSize / 2,
-                                   3 * desc.Width / 4 - patchSize / 2};
-        const UINT yPositions[] = {desc.Height / 2 - patchSize / 2,
-                                   desc.Height / 4 - patchSize / 2,
-                                   desc.Height / 4 - patchSize / 2,
-                                   3 * desc.Height / 4 - patchSize / 2,
-                                   3 * desc.Height / 4 - patchSize / 2};
-        const char* regionNames[] = {"center", "top-left", "top-right", "bottom-left",
-                                     "bottom-right"};
-        auto context = deviceResources->GetImmediateContext();
-        for (UINT patch = 0; patch < 5; ++patch)
-        {
-          const D3D11_BOX box{xPositions[patch], yPositions[patch], 0,
-                              xPositions[patch] + patchSize,
-                              yPositions[patch] + patchSize, 1};
-          context->CopySubresourceRegion(staging.Get(), 0, patch * patchSize, 0, 0,
-                                         output.Get(), 0, &box);
-        }
-
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        readbackHr = context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped);
-        if (SUCCEEDED(readbackHr))
-        {
-          for (UINT patch = 0; patch < 5; ++patch)
-          {
-            uint64_t red = 0;
-            uint64_t green = 0;
-            uint64_t blue = 0;
-            uint64_t alpha = 0;
-            for (UINT row = 0; row < patchSize; ++row)
-            {
-              const auto* pixels = reinterpret_cast<const uint32_t*>(
-                  static_cast<const uint8_t*>(mapped.pData) + row * mapped.RowPitch) +
-                                   patch * patchSize;
-              for (UINT column = 0; column < patchSize; ++column)
-              {
-                const uint32_t pixel = pixels[column];
-                red += pixel & 0x3ff;
-                green += (pixel >> 10) & 0x3ff;
-                blue += (pixel >> 20) & 0x3ff;
-                alpha += (pixel >> 30) & 0x3;
-              }
-            }
-            constexpr uint64_t pixelCount = patchSize * patchSize;
-            CLog::LogF(LOGINFO,
-                       "MFDV: Transferred frame #{} {} patch average R10G10B10A2={}/{}/{}/{}",
-                       nextFrame, regionNames[patch], red / pixelCount, green / pixelCount,
-                       blue / pixelCount, alpha / pixelCount);
-          }
-          context->Unmap(staging.Get(), 0);
-        }
-        else
-          CLog::LogF(LOGWARNING, "MFDV: Pixel readback map failed on frame #{}: {:#x}",
-                     nextFrame,
-                     static_cast<uint32_t>(readbackHr));
-      }
-      else
-        CLog::LogF(LOGWARNING, "MFDV: Pixel readback texture failed on frame #{}: {:#x}",
-                   nextFrame,
-                   static_cast<uint32_t>(readbackHr));
-    }
-    if (SUCCEEDED(hr))
-      hr = m_videoSwapChain->Present(1, 0);
-    if (FAILED(hr))
-    {
-      CLog::LogF(LOGERROR, "MFDV: frame-server transfer failed: {:#x}",
-                 static_cast<uint32_t>(hr));
-      return;
-    }
-
-    const uint64_t rendered = ++m_rendered;
-    if (rendered == 1 || rendered % 120 == 0)
-      CLog::LogF(LOGDEBUG, "MFDV: native Media Engine presented frame #{}", rendered);
+    const uint64_t ticks = ++m_rendered;
+    if (ticks == 1 || ticks % 120 == 0)
+      CLog::LogF(LOGDEBUG, "MFDV: native Media Engine render tick #{}", ticks);
     return;
   }
 
