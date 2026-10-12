@@ -229,6 +229,16 @@ HRESULT FindDolbyVisionP5RendererEffect(IMFActivate** activation)
     if (!matches)
       continue;
 
+    LPWSTR name = nullptr;
+    UINT32 nameLength = 0;
+    if (SUCCEEDED(activations[i]->GetAllocatedString(MFT_FRIENDLY_NAME_Attribute, &name,
+                                                    &nameLength)))
+    {
+      CLog::LogF(LOGINFO, "MFDV: dvhe.05 renderer effect candidate '{}'",
+                 winrt::to_string(winrt::hstring(name)));
+      CoTaskMemFree(name);
+    }
+
     activations[i]->AddRef();
     *activation = activations[i];
     result = S_OK;
