@@ -68,7 +68,6 @@ private:
   Microsoft::WRL::ComPtr<IMFTransform> m_transform;
   Microsoft::WRL::ComPtr<IMFDXGIDeviceManager> m_deviceManager;
   winrt::Windows::ApplicationModel::AppService::AppServiceConnection m_appService{nullptr};
-  bool m_mfStarted{false};
 
   bool m_hdrOutput{false};
   float m_fps{0.0f};

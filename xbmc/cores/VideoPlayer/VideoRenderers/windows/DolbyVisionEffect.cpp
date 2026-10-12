@@ -200,14 +200,6 @@ InputColor GetInputColor(const CDolbyVisionEffect::StreamInfo& stream, bool hdrO
 
 CDolbyVisionEffect::~CDolbyVisionEffect()
 {
-  if (m_transform && m_streaming)
-  {
-    m_transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
-    m_transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
-  }
-  m_transform.Reset();
-  m_deviceManager.Reset();
-
   if (m_appService)
   {
     try
@@ -219,8 +211,13 @@ CDolbyVisionEffect::~CDolbyVisionEffect()
     }
   }
 
-  if (m_mfStarted)
-    MFShutdown();
+  if (m_transform && m_streaming)
+  {
+    m_transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+    m_transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
+  }
+  m_transform.Reset();
+  m_deviceManager.Reset();
 }
 
 bool CDolbyVisionEffect::IsAvailable()
@@ -241,13 +238,14 @@ bool CDolbyVisionEffect::Open(bool hdrOutput, float fps, const StreamInfo& strea
   m_fps = fps;
   m_stream = stream;
 
-  HRESULT hr = MFStartup(MF_VERSION);
+  // Never shut down: the effect keeps working on its own threads after it is released.
+  static const HRESULT startupHr = MFStartup(MF_VERSION);
+  HRESULT hr = startupHr;
   if (FAILED(hr))
   {
     CLog::LogF(LOGERROR, "MFStartup failed: {:#x}", static_cast<uint32_t>(hr));
     return false;
   }
-  m_mfStarted = true;
 
   ComPtr<IMFActivate> activation;
   hr = FindRendererEffect(&activation);

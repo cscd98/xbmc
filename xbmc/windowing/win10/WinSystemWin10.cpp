@@ -337,28 +337,37 @@ bool CWinSystemWin10::SetDolbyVisionOutput(bool enabled)
                                          L"IsDolbyVisionLowLatencySupported"))
     return false;
 
-  const auto hdmiInfo = HdmiDisplayInformation::GetForCurrentView();
-  if (!hdmiInfo)
-    return false;
-
-  const auto currentMode = hdmiInfo.GetCurrentDisplayMode();
-  for (const auto& mode : hdmiInfo.GetSupportedDisplayModes())
+  // also called from the renderer's destructor, so a failed mode switch must not throw
+  try
   {
-    if (mode.ResolutionWidthInRawPixels() == currentMode.ResolutionWidthInRawPixels() &&
-        mode.ResolutionHeightInRawPixels() == currentMode.ResolutionHeightInRawPixels() &&
-        fabs(mode.RefreshRate() - currentMode.RefreshRate()) <= 0.00001 &&
-        (!enabled || mode.IsDolbyVisionLowLatencySupported()))
+    const auto hdmiInfo = HdmiDisplayInformation::GetForCurrentView();
+    if (!hdmiInfo)
+      return false;
+
+    const auto currentMode = hdmiInfo.GetCurrentDisplayMode();
+    for (const auto& mode : hdmiInfo.GetSupportedDisplayModes())
     {
-      const auto hdrOption = enabled ? HdmiDisplayHdrOption::DolbyVisionLowLatency
-                                     : (m_dolbyVisionPreviousHdrState
-                                            ? HdmiDisplayHdrOption::Eotf2084
-                                            : HdmiDisplayHdrOption::None);
-      const bool success =
-          Wait(hdmiInfo.RequestSetCurrentDisplayModeAsync(mode, hdrOption));
-      if (success)
-        m_dolbyVisionPreviousHdrState = enabled && currentMode.IsSmpte2084Supported();
-      return success;
+      if (mode.ResolutionWidthInRawPixels() == currentMode.ResolutionWidthInRawPixels() &&
+          mode.ResolutionHeightInRawPixels() == currentMode.ResolutionHeightInRawPixels() &&
+          fabs(mode.RefreshRate() - currentMode.RefreshRate()) <= 0.00001 &&
+          (!enabled || mode.IsDolbyVisionLowLatencySupported()))
+      {
+        const auto hdrOption = enabled ? HdmiDisplayHdrOption::DolbyVisionLowLatency
+                                       : (m_dolbyVisionPreviousHdrState
+                                              ? HdmiDisplayHdrOption::Eotf2084
+                                              : HdmiDisplayHdrOption::None);
+        const bool success =
+            Wait(hdmiInfo.RequestSetCurrentDisplayModeAsync(mode, hdrOption));
+        if (success)
+          m_dolbyVisionPreviousHdrState = enabled && currentMode.IsSmpte2084Supported();
+        return success;
+      }
     }
+  }
+  catch (const winrt::hresult_error& e)
+  {
+    CLog::LogF(LOGERROR, "unable to {} Dolby Vision output: {:#x}",
+               enabled ? "enable" : "disable", static_cast<uint32_t>(e.code()));
   }
   return false;
 }
