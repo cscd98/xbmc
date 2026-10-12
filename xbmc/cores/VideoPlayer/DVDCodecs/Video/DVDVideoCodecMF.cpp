@@ -85,9 +85,14 @@ bool CDVDVideoCodecMF::Open(CDVDStreamInfo& hints, CDVDCodecOptions&)
     //return false;
   }
 
-  winrt::hstring rendererExtensionProfile;
+  // Profile 5 is decoded by DXVA and reshaped by the Dolby Vision effect in the renderer
   if (isDv && hints.dovi.dv_profile == 5)
-    rendererExtensionProfile = L"dvhe.05";
+  {
+    CLog::LogF(LOGINFO, "MFDV: Dolby Vision profile 5 left to DXVA and the renderer effect");
+    return false;
+  }
+
+  winrt::hstring rendererExtensionProfile;
 
   // hvcC -> Annex-B via Kodi's converter. dvhe carries VPS/SPS/PPS in-band, so an hvcC
   // without parameter-set arrays is valid and must not fail the open.

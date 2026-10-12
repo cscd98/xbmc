@@ -21,6 +21,7 @@ extern "C" {
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
 
 class CSetting;
 
@@ -68,6 +69,8 @@ public:
   StreamHdrType hdrType;
   StreamHdrType hdrTypeAlt;
   std::string strDVELType;
+  //! Dolby Vision RPU NAL unit (header included, emulation prevention removed), if exported
+  std::shared_ptr<const std::vector<uint8_t>> doviRpu;
 
   bool hasDisplayMetadata = false;
   AVMasteringDisplayMetadata displayMetadata;

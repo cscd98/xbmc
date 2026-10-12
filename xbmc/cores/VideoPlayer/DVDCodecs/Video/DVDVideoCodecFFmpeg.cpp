@@ -49,6 +49,32 @@ extern "C" {
 #define RINT lrint
 #endif
 
+#if defined(TARGET_WINDOWS_STORE)
+namespace
+{
+// FFmpeg exports the RPU without its NAL header and with emulation prevention bytes.
+std::shared_ptr<const std::vector<uint8_t>> ToDoviRpuNal(const uint8_t* data, size_t size)
+{
+  auto nal = std::make_shared<std::vector<uint8_t>>();
+  nal->reserve(size + 2);
+  nal->push_back(0x7C);
+  nal->push_back(0x01);
+  int zeros = 0;
+  for (size_t i = 0; i < size; ++i)
+  {
+    if (zeros >= 2 && data[i] == 0x03)
+    {
+      zeros = 0;
+      continue;
+    }
+    zeros = data[i] == 0 ? zeros + 1 : 0;
+    nal->push_back(data[i]);
+  }
+  return nal;
+}
+} // namespace
+#endif
+
 enum DecoderState
 {
   STATE_NONE,
@@ -340,6 +366,12 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
 
   m_hints = hints;
   m_options = options;
+
+#if defined(TARGET_WINDOWS_STORE)
+  m_exportDoviRpu = hints.dovi.dv_profile == 5 &&
+                    CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+                        "videoplayer.usemfdolbyvision");
+#endif
 
 #if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
   const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
@@ -1208,6 +1240,16 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
     pVideoPicture->lightMetadata = *m_hints.contentLightMetadata.get();
     pVideoPicture->hasLightMetadata = true;
   }
+
+  pVideoPicture->doviRpu.reset();
+#if defined(TARGET_WINDOWS_STORE)
+  if (m_exportDoviRpu)
+  {
+    sd = av_frame_get_side_data(m_pFrame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
+    if (sd && sd->size > 0)
+      pVideoPicture->doviRpu = ToDoviRpuNal(sd->data, sd->size);
+  }
+#endif
 
   if (pVideoPicture->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION)
   {

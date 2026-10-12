@@ -9,6 +9,9 @@
 #include "RendererShaders.h"
 
 #include "DVDCodecs/Video/DXVA.h"
+#if defined(TARGET_WINDOWS_STORE)
+#include "DolbyVisionEffect.h"
+#endif
 #include "WIN32Util.h"
 #include "rendering/dx/RenderContext.h"
 #include "utils/CPUInfo.h"
@@ -68,6 +71,13 @@ void CRendererShaders::GetWeight(std::map<RenderMethod, int>& weights, const Vid
       break;
   }
 
+#if defined(TARGET_WINDOWS_STORE)
+  // Dolby Vision profile 5 is only reshaped correctly by the renderer effect on this path
+  if (picture.doviRpu && av_pixel_format == AV_PIX_FMT_D3D11VA_VLD &&
+      CDolbyVisionEffect::IsAvailable())
+    weight += 2000;
+#endif
+
   if (weight > 0)
     weights[RENDER_PS] = weight;
 }
@@ -76,6 +86,8 @@ CRendererShaders::CRendererShaders(CVideoSettings& videoSettings) : CRendererHQ(
 {
   m_renderMethodName = "Pixel Shaders";
 }
+
+CRendererShaders::~CRendererShaders() = default;
 
 bool CRendererShaders::Supports(ESCALINGMETHOD method) const
 {
@@ -100,6 +112,12 @@ bool CRendererShaders::Configure(const VideoPicture& picture, float fps, unsigne
         m_format = GetAVFormat(dxgi_format);
     }
     m_srcPrimaries = picture.color_primaries;
+#if defined(TARGET_WINDOWS_STORE)
+    m_dvEffect.reset();
+    m_dvOutput = nullptr;
+    m_dolbyVisionEffect =
+        picture.doviRpu && picture.videoBuffer->GetFormat() == AV_PIX_FMT_D3D11VA_VLD;
+#endif
 
     CreateIntermediateTarget(m_sourceWidth, m_sourceHeight, false, CalcIntermediateTargetFormat());
     return true;
@@ -133,6 +151,15 @@ void CRendererShaders::RenderImpl(CD3DTexture& target, CRect& sourceRect, CPoint
                                  static_cast<float>(target.GetHeight())));
   }
 
+#if defined(TARGET_WINDOWS_STORE)
+  if (RenderDolbyVision(target, buf))
+  {
+    if (!HasHQScaler())
+      ReorderDrawPoints(CRect(destPoints[0], destPoints[2]), destPoints);
+    return;
+  }
+#endif
+
   CPoint dstPoints[4];
   dst.GetQuad(dstPoints);
 
@@ -152,6 +179,55 @@ void CRendererShaders::RenderImpl(CD3DTexture& target, CRect& sourceRect, CPoint
   else if (!HasHQScaler())
     ReorderDrawPoints(CRect(destPoints[0], destPoints[2]), destPoints);
 }
+
+#if defined(TARGET_WINDOWS_STORE)
+bool CRendererShaders::RenderDolbyVision(CD3DTexture& target, CRenderBuffer* buf)
+{
+  if (!m_dolbyVisionEffect || !buf->doviRpu)
+    return false;
+
+  const bool hdr = ActualRenderAsHDR();
+  if (!m_dvEffect || m_dvEffect->IsHdrOutput() != hdr)
+  {
+    m_dvOutput = nullptr;
+    m_dvEffect = std::make_unique<CDolbyVisionEffect>();
+    if (!m_dvEffect->Open(hdr, m_fps, buf->color_space, buf->color_transfer, buf->full_range))
+    {
+      CLog::LogF(LOGERROR, "Dolby Vision effect unavailable, falling back to the P010 shader");
+      m_dvEffect.reset();
+      m_dolbyVisionEffect = false;
+      CreateIntermediateTarget(m_sourceWidth, m_sourceHeight, false,
+                               CalcIntermediateTargetFormat());
+      return false;
+    }
+    CreateIntermediateTarget(m_sourceWidth, m_sourceHeight, false, m_dvEffect->GetOutputFormat());
+  }
+
+  // a frame shown more than once must not be fed to the effect again
+  if (!m_dvOutput || buf->frameIdx != m_dvFrameIdx)
+  {
+    ComPtr<ID3D11Resource> resource;
+    unsigned index = 0;
+    if (FAILED(buf->GetResource(&resource, &index)))
+      return true;
+
+    const LONGLONG time =
+        m_fps > 0.0f ? static_cast<LONGLONG>(buf->frameIdx / 2 * 10000000.0 / m_fps) : 0;
+    m_dvOutput = m_dvEffect->Process(resource.Get(), index, *buf->doviRpu, time);
+    m_dvFrameIdx = buf->frameIdx;
+    if (!m_dvOutput)
+      return true;
+  }
+
+  D3D11_TEXTURE2D_DESC desc;
+  m_dvOutput->GetDesc(&desc);
+  const D3D11_BOX box{0, 0, 0, std::min(desc.Width, target.GetWidth()),
+                      std::min(desc.Height, target.GetHeight()), 1};
+  DX::DeviceResources::Get()->GetD3DContext()->CopySubresourceRegion(target.Get(), 0, 0, 0, 0,
+                                                                     m_dvOutput, 0, &box);
+  return true;
+}
+#endif
 
 void CRendererShaders::CheckVideoParameters()
 {

@@ -12,4 +12,9 @@ set(HEADERS RendererBase.h
             RendererSoftware.h
             RendererMF.h)
 
+if(CORE_SYSTEM_NAME STREQUAL windowsstore)
+  list(APPEND SOURCES DolbyVisionEffect.cpp)
+  list(APPEND HEADERS DolbyVisionEffect.h)
+endif()
+
 core_add_library(videorenderers-windows)

@@ -109,6 +109,9 @@ protected:
 #if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
   std::unique_ptr<CBitstreamConverter> m_doviConverter;
 #endif
+#if defined(TARGET_WINDOWS_STORE)
+  bool m_exportDoviRpu = false;
+#endif
 
   struct CDropControl
   {

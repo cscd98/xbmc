@@ -15,6 +15,7 @@
 #include "cores/VideoSettings.h"
 #include "guilib/D3DResource.h"
 
+#include <memory>
 #include <vector>
 
 #include <d3d11_4.h>
@@ -93,6 +94,7 @@ public:
   AVContentLightMetadata lightMetadata = {};
   std::string stereoMode;
   uint64_t frameIdx = 0;
+  std::shared_ptr<const std::vector<uint8_t>> doviRpu;
 
 protected:
   CRenderBuffer(AVPixelFormat av_pix_format, unsigned width, unsigned height);
@@ -235,5 +237,6 @@ protected:
   bool m_AutoSwitchHDR = false;
   bool m_initialHdrEnabled = false;
   bool m_DolbyVisionOutput = false;
+  bool m_dolbyVisionEffect = false; // frames are already display-referred RGB
   std::string m_renderMethodName;
 };

@@ -65,6 +65,7 @@ void CRenderBuffer::AppendPicture(const VideoPicture& picture)
   bits = picture.colorBits;
   stereoMode = picture.stereoMode;
   pixelFormat = picture.pixelFormat;
+  doviRpu = picture.doviRpu;
 
   hasDisplayMetadata = picture.hasDisplayMetadata;
   displayMetadata = picture.displayMetadata;
@@ -79,6 +80,7 @@ void CRenderBuffer::ReleasePicture()
   if (videoBuffer)
     videoBuffer->Release();
   videoBuffer = nullptr;
+  doviRpu.reset();
   m_bLoaded = false;
 }
 
@@ -510,7 +512,8 @@ void CRendererBase::CheckVideoParameters()
 
   bool isHDRPQ = (buf->color_transfer == AVCOL_TRC_SMPTE2084 && buf->primaries == AVCOL_PRI_BT2020);
 
-  bool toneMap = (isHDRPQ && m_HdrType == HDR_TYPE::HDR_NONE_SDR && method != VS_TONEMAPMETHOD_OFF);
+  bool toneMap = (isHDRPQ && m_HdrType == HDR_TYPE::HDR_NONE_SDR && method != VS_TONEMAPMETHOD_OFF &&
+                  !m_dolbyVisionEffect);
 
   bool hlg = (m_HdrType == HDR_TYPE::HDR_HLG);
 

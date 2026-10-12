@@ -25,12 +25,13 @@ extern "C"
 #define PLANE_UV 1
 
 enum RenderMethod;
+class CDolbyVisionEffect;
 
 class CRendererShaders : public CRendererHQ
 {
   class CRenderBufferImpl;
 public:
-  ~CRendererShaders() = default;
+  ~CRendererShaders() override;
 
   bool Supports(ESCALINGMETHOD method) const override;
   bool Configure(const VideoPicture& picture, float fps, unsigned orientation) override;
@@ -49,6 +50,13 @@ protected:
 private:
   static AVColorPrimaries GetSrcPrimaries(AVColorPrimaries srcPrimaries, unsigned int width, unsigned int height);
   DXGI_FORMAT CalcIntermediateTargetFormat() const;
+#if defined(TARGET_WINDOWS_STORE)
+  bool RenderDolbyVision(CD3DTexture& target, CRenderBuffer* buf);
+
+  std::unique_ptr<CDolbyVisionEffect> m_dvEffect;
+  ID3D11Texture2D* m_dvOutput = nullptr;
+  uint64_t m_dvFrameIdx = 0;
+#endif
 
   AVColorPrimaries m_srcPrimaries = AVCOL_PRI_BT709;
   std::unique_ptr<CYUV2RGBShader> m_colorShader;
