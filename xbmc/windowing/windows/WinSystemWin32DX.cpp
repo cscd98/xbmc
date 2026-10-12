@@ -451,7 +451,6 @@ bool CWinSystemWin32DX::IsTransferPQ() const
 
 void CWinSystemWin32DX::SetHdrMetaData(DXGI_HDR_METADATA_HDR10& hdr10) const
 {
-  CLog::LogF(LOGDEBUG, "MFDV: CWinSystemWin32DX::SetHdrMetaData");
   m_deviceResources->SetHdrMetaData(hdr10);
 }
 

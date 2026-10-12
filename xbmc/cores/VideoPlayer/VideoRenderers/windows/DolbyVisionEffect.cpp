@@ -8,7 +8,6 @@
 
 #include "DolbyVisionEffect.h"
 
-#include "DVDCodecs/Video/MFPacketSource.h"
 #include "rendering/dx/DeviceResources.h"
 #include "utils/log.h"
 
@@ -20,6 +19,7 @@
 #include <d3d11_4.h>
 #include <mferror.h>
 #include <mfidl.h>
+#include <propvarutil.h>
 #include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Graphics.Display.h>
@@ -31,6 +31,10 @@ using namespace std::chrono_literals;
 
 namespace
 {
+constexpr GUID kVideoRendererEffectCategory{
+    0x145cd8b4, 0x92f4, 0x4b23, {0x8a, 0xe7, 0xe0, 0xdf, 0x06, 0xc2, 0xda, 0x95}};
+constexpr GUID kVideoRendererExtensionProfile{
+    0x62c56928, 0x9a4e, 0x443b, {0xb9, 0xdc, 0xca, 0xc8, 0x30, 0xc2, 0x41, 0x00}};
 constexpr GUID kForwardedDecodeUnits{
     0x424c754c, 0x97c8, 0x48d6, {0x87, 0x77, 0xfc, 0x41, 0xf7, 0xb6, 0x08, 0x79}};
 constexpr GUID kAppServiceName{
@@ -39,6 +43,41 @@ constexpr GUID kAppServiceName{
 constexpr GUID kCustomVideoPrimaries{
     0x47537213, 0x8cfb, 0x4722, {0xaa, 0x34, 0xfb, 0xc9, 0xe2, 0x4d, 0x77, 0xb8}};
 constexpr wchar_t kDefaultAppServiceName[] = L"com.dolby.dvappservice";
+
+HRESULT FindRendererEffect(IMFActivate** activation)
+{
+  IMFActivate** activations = nullptr;
+  UINT32 count = 0;
+  HRESULT hr = MFTEnumEx(kVideoRendererEffectCategory, MFT_ENUM_FLAG_SORTANDFILTER, nullptr,
+                         nullptr, &activations, &count);
+  if (FAILED(hr))
+    return hr;
+
+  hr = MF_E_TOPO_CODEC_NOT_FOUND;
+  for (UINT32 i = 0; i < count; ++i)
+  {
+    PROPVARIANT value;
+    PropVariantInit(&value);
+    bool matches = false;
+    if (SUCCEEDED(activations[i]->GetItem(kVideoRendererExtensionProfile, &value)) &&
+        value.vt == (VT_VECTOR | VT_LPWSTR))
+    {
+      for (ULONG j = 0; j < value.calpwstr.cElems && !matches; ++j)
+        matches = value.calpwstr.pElems[j] && _wcsicmp(value.calpwstr.pElems[j], L"dvhe.05") == 0;
+    }
+    PropVariantClear(&value);
+
+    if (matches && hr != S_OK)
+    {
+      activations[i]->AddRef();
+      *activation = activations[i];
+      hr = S_OK;
+    }
+    activations[i]->Release();
+  }
+  CoTaskMemFree(activations);
+  return hr;
+}
 
 HRESULT CreateTextureSample(ID3D11Texture2D* texture, LONGLONG time, IMFSample** sample)
 {
@@ -140,7 +179,7 @@ bool CDolbyVisionEffect::IsAvailable()
     return false;
 
   ComPtr<IMFActivate> activation;
-  const bool available = SUCCEEDED(FindDolbyVisionP5RendererEffect(&activation));
+  const bool available = SUCCEEDED(FindRendererEffect(&activation));
   activation.Reset();
   MFShutdown();
   return available;
@@ -167,7 +206,7 @@ bool CDolbyVisionEffect::Open(bool hdrOutput,
   m_mfStarted = true;
 
   ComPtr<IMFActivate> activation;
-  hr = FindDolbyVisionP5RendererEffect(&activation);
+  hr = FindRendererEffect(&activation);
   if (SUCCEEDED(hr))
     hr = activation->ActivateObject(IID_PPV_ARGS(&m_transform));
   if (FAILED(hr))

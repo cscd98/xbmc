@@ -10,9 +10,7 @@
 
 #include "cores/FFmpeg.h"
 
-#include <array>
 #include <stdint.h>
-#include <vector>
 
 extern "C"
 {
@@ -104,7 +102,6 @@ public:
   uint8_t* GetExtraData();
   const uint8_t* GetExtraData() const;
   int GetExtraSize() const;
-  const std::vector<uint8_t>& GetHEVCParameterSets() const { return m_hevcSequenceHeader; }
   void ResetStartDecode();
   bool CanStartDecode() const;
   void SetConvertDovi(bool value) { m_convert_dovi = value; }
@@ -157,8 +154,6 @@ protected:
   bool m_to_annexb;
 
   FFmpegExtraData m_extraData;
-  std::array<std::vector<uint8_t>, 3> m_hevcParameterSets;
-  std::vector<uint8_t> m_hevcSequenceHeader;
   bool m_convert_3byteTo4byteNALSize;
   bool m_convert_bytestream;
   AVCodecID m_codec;

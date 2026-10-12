@@ -25173,16 +25173,16 @@ msgctxt "#39217"
 msgid "Best"
 msgstr ""
 
-#. Title of the setting that chooses if mediaframework decoder is used
+#. Title of the setting that chooses if the Dolby Vision renderer effect is used for profile 5
 #: system/settings/settings.xml
 msgctxt "#39218"
-msgid "MediaFramework decoder"
+msgid "Dolby Vision profile 5 renderer effect"
 msgstr ""
 
-#. Help text for setting "Language details to display" of label #39218
+#. Help text for setting "Dolby Vision profile 5 renderer effect" of label #39218
 #: system/settings/settings.xml
 msgctxt "#39219"
-msgid "Use MediaFramework decoder."
+msgid "Use the system Dolby Vision renderer effect to show the correct colours for Dolby Vision profile 5 video."
 msgstr ""
 
 #empty strings from id 39220 to 39899

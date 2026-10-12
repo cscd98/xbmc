@@ -36,11 +36,6 @@
 
 #include <DirectXPackedVector.h>
 
-#if defined(TARGET_WINDOWS_STORE)
-#include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecMF.h"
-#include "cores/VideoPlayer/VideoRenderers/windows/RendererMF.h"
-#endif
-
 extern "C"
 {
 #include <libavutil/pixfmt.h>
@@ -83,15 +78,8 @@ bool CRenderSystemDX::InitRenderSystem()
 #endif
   CDVDFactoryCodec::ClearHWAccels();
   DXVA::CDecoder::Register();
-#if defined(TARGET_WINDOWS_STORE)
-  CDVDFactoryCodec::ClearHWVideoCodecs();
-  CDVDVideoCodecMF::Register();
-#endif
   VIDEOPLAYER::CRendererFactory::ClearRenderer();
   CWinRenderer::Register();
-#if defined(TARGET_WINDOWS_STORE)
-  CRendererMF::Register();
-#endif
 #if defined(TARGET_WINDOWS_DESKTOP)
   RETRO::CRPProcessInfoWin::Register();
   RETRO::CRPProcessInfoWin::RegisterRendererFactory(new RETRO::CWinRendererFactory);
