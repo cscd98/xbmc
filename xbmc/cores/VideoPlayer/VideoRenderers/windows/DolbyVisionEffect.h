@@ -24,26 +24,31 @@ extern "C"
 }
 
 /*!
- * \brief Runs decoded Dolby Vision profile 5 frames through the system Dolby Vision video
- * renderer effect MFT, which reshapes P010 + RPU into display-referred RGB.
+ * \brief Runs decoded Dolby Vision frames through the system Dolby Vision video renderer
+ * effect MFT, which reshapes P010 + RPU into display-referred RGB.
  */
 class CDolbyVisionEffect
 {
 public:
+  struct StreamInfo
+  {
+    int profile = 0;
+    int compatibilityId = 0;
+    AVColorSpace colorSpace = AVCOL_SPC_UNSPECIFIED;
+    AVColorTransferCharacteristic colorTransfer = AVCOL_TRC_UNSPECIFIED;
+    bool fullRange = false;
+    unsigned maxMasteringLuminance = 0; // nits, 0 if unknown
+  };
+
   ~CDolbyVisionEffect();
 
   static bool IsAvailable();
 
-  bool Open(bool hdrOutput,
-            float fps,
-            AVColorSpace colorSpace,
-            AVColorTransferCharacteristic colorTransfer,
-            bool fullRange);
+  bool Open(bool hdrOutput, float fps, const StreamInfo& stream);
   bool IsHdrOutput() const { return m_hdrOutput; }
   DXGI_FORMAT GetOutputFormat() const;
 
   /*!
-   * \param rpu RPU NAL unit including its two byte header, emulation prevention bytes removed
    * \return RGB texture owned by the effect, valid until the pool wraps around
    */
   ID3D11Texture2D* Process(ID3D11Resource* decoderTexture,
@@ -67,9 +72,7 @@ private:
 
   bool m_hdrOutput{false};
   float m_fps{0.0f};
-  AVColorSpace m_colorSpace{AVCOL_SPC_UNSPECIFIED};
-  AVColorTransferCharacteristic m_colorTransfer{AVCOL_TRC_UNSPECIFIED};
-  bool m_fullRange{false};
+  StreamInfo m_stream;
 
   bool m_hasDisplayColor{false};
   // red, green, blue, white xy; MT_CUSTOM_VIDEO_PRIMARIES layout

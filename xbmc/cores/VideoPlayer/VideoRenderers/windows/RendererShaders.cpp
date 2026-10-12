@@ -21,6 +21,8 @@
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 
+#include <cmath>
+
 #include <ppl.h>
 
 using namespace Microsoft::WRL;
@@ -72,7 +74,7 @@ void CRendererShaders::GetWeight(std::map<RenderMethod, int>& weights, const Vid
   }
 
 #if defined(TARGET_WINDOWS_STORE)
-  // Dolby Vision profile 5 is only reshaped correctly by the renderer effect on this path
+  // Dolby Vision is only reshaped by the renderer effect on this path
   if (picture.doviRpu && av_pixel_format == AV_PIX_FMT_D3D11VA_VLD &&
       CDolbyVisionEffect::IsAvailable())
     weight += 2000;
@@ -191,7 +193,16 @@ bool CRendererShaders::RenderDolbyVision(CD3DTexture& target, CRenderBuffer* buf
   {
     m_dvOutput = nullptr;
     m_dvEffect = std::make_unique<CDolbyVisionEffect>();
-    if (!m_dvEffect->Open(hdr, m_fps, buf->color_space, buf->color_transfer, buf->full_range))
+    CDolbyVisionEffect::StreamInfo stream;
+    stream.profile = buf->doviRpu->profile;
+    stream.compatibilityId = buf->doviRpu->compatibilityId;
+    stream.colorSpace = buf->color_space;
+    stream.colorTransfer = buf->color_transfer;
+    stream.fullRange = buf->full_range;
+    if (buf->hasDisplayMetadata && buf->displayMetadata.has_luminance)
+      stream.maxMasteringLuminance =
+          static_cast<unsigned>(std::lround(av_q2d(buf->displayMetadata.max_luminance)));
+    if (!m_dvEffect->Open(hdr, m_fps, stream))
     {
       CLog::LogF(LOGERROR, "Dolby Vision effect unavailable, falling back to the P010 shader");
       m_dvEffect.reset();
@@ -213,7 +224,7 @@ bool CRendererShaders::RenderDolbyVision(CD3DTexture& target, CRenderBuffer* buf
 
     const LONGLONG time =
         m_fps > 0.0f ? static_cast<LONGLONG>(buf->frameIdx / 2 * 10000000.0 / m_fps) : 0;
-    m_dvOutput = m_dvEffect->Process(resource.Get(), index, *buf->doviRpu, time);
+    m_dvOutput = m_dvEffect->Process(resource.Get(), index, buf->doviRpu->data, time);
     m_dvFrameIdx = buf->frameIdx;
     if (!m_dvOutput)
       return true;

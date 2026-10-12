@@ -128,6 +128,13 @@ HRESULT AttachRpu(IMFSample* frame, const std::vector<uint8_t>& rpu, LONGLONG ti
   return hr;
 }
 
+struct InputColor
+{
+  UINT32 transfer;
+  UINT32 matrix;
+  UINT32 range;
+};
+
 UINT32 ToTransferMatrix(AVColorSpace colorSpace, bool hdr)
 {
   switch (colorSpace)
@@ -145,6 +152,49 @@ UINT32 ToTransferMatrix(AVColorSpace colorSpace, bool hdr)
     default:
       return hdr ? MFVideoTransferMatrix_BT2020_10 : MFVideoTransferMatrix_BT709;
   }
+}
+
+InputColor GetInputColor(const CDolbyVisionEffect::StreamInfo& stream, bool hdrOutput)
+{
+  switch (stream.profile)
+  {
+    case 5:
+    case 10:
+      return {MFVideoTransFunc_2084, MFVideoTransferMatrix_BT2020_10, MFNominalRange_0_255};
+    case 7:
+      return {MFVideoTransFunc_2084, MFVideoTransferMatrix_BT2020_10, MFNominalRange_16_235};
+    case 8:
+      if (stream.compatibilityId == 1)
+        return {MFVideoTransFunc_2084, MFVideoTransferMatrix_BT2020_10, MFNominalRange_16_235};
+      if (stream.compatibilityId == 2)
+        return {MFVideoTransFunc_709, MFVideoTransferMatrix_BT709, MFNominalRange_16_235};
+      if (stream.compatibilityId == 4)
+        return {MFVideoTransFunc_HLG, MFVideoTransferMatrix_BT2020_10, MFNominalRange_16_235};
+      break;
+    default:
+      break;
+  }
+
+  const bool hdr = hdrOutput || stream.colorTransfer == AVCOL_TRC_SMPTE2084 ||
+                   stream.colorTransfer == AVCOL_TRC_ARIB_STD_B67;
+  UINT32 transfer;
+  switch (stream.colorTransfer)
+  {
+    case AVCOL_TRC_SMPTE2084:
+      transfer = MFVideoTransFunc_2084;
+      break;
+    case AVCOL_TRC_ARIB_STD_B67:
+      transfer = MFVideoTransFunc_HLG;
+      break;
+    case AVCOL_TRC_BT709:
+      transfer = MFVideoTransFunc_709;
+      break;
+    default:
+      transfer = hdrOutput ? MFVideoTransFunc_2084 : MFVideoTransFunc_709;
+      break;
+  }
+  return {transfer, ToTransferMatrix(stream.colorSpace, hdr),
+          static_cast<UINT32>(stream.fullRange ? MFNominalRange_0_255 : MFNominalRange_16_235)};
 }
 } // namespace
 
@@ -185,17 +235,11 @@ bool CDolbyVisionEffect::IsAvailable()
   return available;
 }
 
-bool CDolbyVisionEffect::Open(bool hdrOutput,
-                              float fps,
-                              AVColorSpace colorSpace,
-                              AVColorTransferCharacteristic colorTransfer,
-                              bool fullRange)
+bool CDolbyVisionEffect::Open(bool hdrOutput, float fps, const StreamInfo& stream)
 {
   m_hdrOutput = hdrOutput;
   m_fps = fps;
-  m_colorSpace = colorSpace;
-  m_colorTransfer = colorTransfer;
-  m_fullRange = fullRange;
+  m_stream = stream;
 
   HRESULT hr = MFStartup(MF_VERSION);
   if (FAILED(hr))
@@ -244,7 +288,8 @@ bool CDolbyVisionEffect::Open(bool hdrOutput,
 
   SetOutputDevice();
 
-  CLog::LogF(LOGINFO, "Dolby Vision effect loaded, output {}",
+  CLog::LogF(LOGINFO, "Dolby Vision effect loaded for profile {}.{}, output {}", m_stream.profile,
+             m_stream.compatibilityId,
              m_hdrOutput ? "HDR PQ BT.2020 (R10G10B10A2)" : "SDR sRGB (B8G8R8A8)");
   return true;
 }
@@ -401,8 +446,7 @@ HRESULT CDolbyVisionEffect::SetInputType(unsigned width, unsigned height)
   if (FAILED(hr))
     return hr;
 
-  const bool hdr = m_hdrOutput || m_colorTransfer == AVCOL_TRC_SMPTE2084 ||
-                   m_colorTransfer == AVCOL_TRC_ARIB_STD_B67;
+  const InputColor color = GetInputColor(m_stream, m_hdrOutput);
   MFVideoArea area{};
   area.Area = {static_cast<LONG>(width), static_cast<LONG>(height)};
 
@@ -422,9 +466,13 @@ HRESULT CDolbyVisionEffect::SetInputType(unsigned width, unsigned height)
   if (m_fps > 0.0f)
     MFSetAttributeRatio(type.Get(), MF_MT_FRAME_RATE,
                         static_cast<UINT32>(std::lround(m_fps * 1000.0f)), 1000);
-  type->SetUINT32(MF_MT_YUV_MATRIX, ToTransferMatrix(m_colorSpace, hdr));
-  type->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE,
-                  m_fullRange ? MFNominalRange_0_255 : MFNominalRange_16_235);
+  if (m_stream.profile == 8 && m_stream.compatibilityId == 1 && m_stream.maxMasteringLuminance)
+    type->SetUINT32(MF_MT_MAX_MASTERING_LUMINANCE, m_stream.maxMasteringLuminance);
+  // profile 5 is IPTPQc2, which has no YCbCr transfer function to describe
+  if (m_stream.profile != 5)
+    type->SetUINT32(MF_MT_TRANSFER_FUNCTION, color.transfer);
+  type->SetUINT32(MF_MT_YUV_MATRIX, color.matrix);
+  type->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, color.range);
   type->SetUINT32(MF_MT_VIDEO_CHROMA_SITING, MFVideoChromaSubsampling_MPEG2);
 
   return m_transform->SetInputType(0, type.Get(), 0);

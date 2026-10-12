@@ -17,6 +17,7 @@
 #include "utils/BitstreamConverter.h"
 #endif
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -111,6 +112,7 @@ protected:
 #endif
 #if defined(TARGET_WINDOWS_STORE)
   bool m_exportDoviRpu = false;
+  std::map<int64_t, std::vector<uint8_t>> m_av1DoviRpus; // by packet pts
 #endif
 
   struct CDropControl

@@ -25,6 +25,7 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
+struct DoviRpu;
 struct VideoPicture;
 class CVideoBuffer;
 
@@ -94,7 +95,7 @@ public:
   AVContentLightMetadata lightMetadata = {};
   std::string stereoMode;
   uint64_t frameIdx = 0;
-  std::shared_ptr<const std::vector<uint8_t>> doviRpu;
+  std::shared_ptr<const DoviRpu> doviRpu;
 
 protected:
   CRenderBuffer(AVPixelFormat av_pix_format, unsigned width, unsigned height);

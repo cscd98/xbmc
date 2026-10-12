@@ -28,6 +28,8 @@
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 
+#include <cstring>
+#include <iterator>
 #include <memory>
 #include <mutex>
 
@@ -42,6 +44,10 @@ extern "C" {
 #include <libavutil/video_enc_params.h>
 }
 
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+#include <libdovi/rpu_parser.h>
+#endif
+
 #ifndef TARGET_POSIX
 #define RINT(x) ((x) >= 0 ? ((int)((x) + 0.5)) : ((int)((x) - 0.5)))
 #else
@@ -53,12 +59,12 @@ extern "C" {
 namespace
 {
 // FFmpeg exports the RPU without its NAL header and with emulation prevention bytes.
-std::shared_ptr<const std::vector<uint8_t>> ToDoviRpuNal(const uint8_t* data, size_t size)
+std::vector<uint8_t> ToDoviRpuNal(const uint8_t* data, size_t size)
 {
-  auto nal = std::make_shared<std::vector<uint8_t>>();
-  nal->reserve(size + 2);
-  nal->push_back(0x7C);
-  nal->push_back(0x01);
+  std::vector<uint8_t> nal;
+  nal.reserve(size + 2);
+  nal.push_back(0x7C);
+  nal.push_back(0x01);
   int zeros = 0;
   for (size_t i = 0; i < size; ++i)
   {
@@ -68,10 +74,78 @@ std::shared_ptr<const std::vector<uint8_t>> ToDoviRpuNal(const uint8_t* data, si
       continue;
     }
     zeros = data[i] == 0 ? zeros + 1 : 0;
-    nal->push_back(data[i]);
+    nal.push_back(data[i]);
   }
   return nal;
 }
+
+#if defined(HAVE_LIBDOVI)
+bool ReadLeb128(const uint8_t* data, size_t size, size_t& pos, uint64_t& value)
+{
+  value = 0;
+  for (int i = 0; i < 8 && pos < size; ++i)
+  {
+    const uint8_t byte = data[pos++];
+    value |= static_cast<uint64_t>(byte & 0x7F) << (i * 7);
+    if (!(byte & 0x80))
+      return true;
+  }
+  return false;
+}
+
+// The AV1 RPU travels in an ITU-T T.35 metadata OBU, wrapped in an EMDF container. It is
+// returned in the same form as the HEVC one: NAL header, RPU prefix and unescaped RPU.
+std::vector<uint8_t> ExtractAv1DoviRpu(const uint8_t* data, size_t size)
+{
+  constexpr int OBU_METADATA = 5;
+  constexpr uint64_t METADATA_TYPE_ITUT_T35 = 4;
+  // country code US, provider code Dolby, provider oriented code
+  constexpr uint8_t dolbyT35[] = {0xB5, 0x00, 0x3B, 0x00, 0x00, 0x08, 0x00};
+  constexpr uint8_t RPU_PREFIX = 0x19;
+
+  size_t pos = 0;
+  while (pos < size)
+  {
+    const uint8_t header = data[pos++];
+    if (header & 0x04) // obu_extension_flag
+      ++pos;
+    uint64_t obuSize = pos < size ? size - pos : 0;
+    if ((header & 0x02) && !ReadLeb128(data, size, pos, obuSize)) // obu_has_size_field
+      return {};
+    if (pos > size || obuSize > size - pos)
+      return {};
+
+    const uint8_t* obu = data + pos;
+    pos += obuSize;
+    if (((header >> 3) & 0x0F) != OBU_METADATA)
+      continue;
+
+    size_t offset = 0;
+    uint64_t metadataType = 0;
+    if (!ReadLeb128(obu, obuSize, offset, metadataType) ||
+        metadataType != METADATA_TYPE_ITUT_T35 || obuSize - offset <= sizeof(dolbyT35) ||
+        std::memcmp(obu + offset, dolbyT35, sizeof(dolbyT35)) != 0)
+      continue;
+
+    DoviRpuOpaque* parsed = dovi_parse_itu_t35_dovi_metadata_obu(obu + offset, obuSize - offset);
+    const DoviData* written = dovi_rpu_get_error(parsed) ? nullptr : dovi_write_rpu(parsed);
+    std::vector<uint8_t> nal;
+    if (written && written->len)
+    {
+      nal = {0x7C, 0x01};
+      if (written->data[0] != RPU_PREFIX)
+        nal.push_back(RPU_PREFIX);
+      nal.insert(nal.end(), written->data, written->data + written->len);
+    }
+    if (written)
+      dovi_data_free(written);
+    dovi_rpu_free(parsed);
+    if (!nal.empty())
+      return nal;
+  }
+  return {};
+}
+#endif
 } // namespace
 #endif
 
@@ -368,9 +442,12 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   m_options = options;
 
 #if defined(TARGET_WINDOWS_STORE)
-  m_exportDoviRpu = hints.dovi.dv_profile == 5 &&
+  const int doviProfile = hints.dovi.dv_profile;
+  m_exportDoviRpu = (doviProfile == 5 || doviProfile == 7 || doviProfile == 8 ||
+                     doviProfile == 10) &&
                     CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                         "videoplayer.usemfdolbyvision");
+  m_av1DoviRpus.clear();
 #endif
 
 #if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
@@ -701,6 +778,20 @@ bool CDVDVideoCodecFFmpeg::AddData(const DemuxPacket &packet)
                    : static_cast<int64_t>(packet.pts / DVD_TIME_BASE * AV_TIME_BASE);
   avpkt->side_data = static_cast<AVPacketSideData*>(packet.pSideData);
   avpkt->side_data_elems = packet.iSideDataElems;
+
+#if defined(TARGET_WINDOWS_STORE) && defined(HAVE_LIBDOVI)
+  // FFmpeg doesn't export the AV1 RPU, so keep it for the frame with the same pts
+  if (m_exportDoviRpu && m_hints.codec == AV_CODEC_ID_AV1 && avpkt->pts != AV_NOPTS_VALUE)
+  {
+    std::vector<uint8_t> rpu = ExtractAv1DoviRpu(packet.pData, packet.iSize);
+    if (!rpu.empty())
+    {
+      m_av1DoviRpus[avpkt->pts] = std::move(rpu);
+      if (m_av1DoviRpus.size() > 64)
+        m_av1DoviRpus.erase(m_av1DoviRpus.begin());
+    }
+  }
+#endif
 
   int ret = avcodec_send_packet(m_pCodecContext, avpkt);
 
@@ -1056,6 +1147,9 @@ void CDVDVideoCodecFFmpeg::Reset()
   if (m_doviConverter)
     m_doviConverter->ResetStartDecode();
 #endif
+#if defined(TARGET_WINDOWS_STORE)
+  m_av1DoviRpus.clear();
+#endif
 
   m_filters = "";
   FilterClose();
@@ -1245,9 +1339,27 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
 #if defined(TARGET_WINDOWS_STORE)
   if (m_exportDoviRpu)
   {
-    sd = av_frame_get_side_data(m_pFrame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
-    if (sd && sd->size > 0)
-      pVideoPicture->doviRpu = ToDoviRpuNal(sd->data, sd->size);
+    std::vector<uint8_t> rpu;
+    if (m_hints.codec == AV_CODEC_ID_AV1)
+    {
+      const auto it = m_av1DoviRpus.find(m_pFrame->pts);
+      if (it != m_av1DoviRpus.end())
+      {
+        rpu = std::move(it->second);
+        m_av1DoviRpus.erase(m_av1DoviRpus.begin(), std::next(it));
+      }
+    }
+    else
+    {
+      sd = av_frame_get_side_data(m_pFrame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
+      if (sd && sd->size > 0)
+        rpu = ToDoviRpuNal(sd->data, sd->size);
+    }
+
+    if (!rpu.empty())
+      pVideoPicture->doviRpu = std::make_shared<DoviRpu>(
+          DoviRpu{m_hints.dovi.dv_profile, m_hints.dovi.dv_bl_signal_compatibility_id,
+                  std::move(rpu)});
   }
 #endif
 

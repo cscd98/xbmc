@@ -25173,16 +25173,16 @@ msgctxt "#39217"
 msgid "Best"
 msgstr ""
 
-#. Title of the setting that chooses if the Dolby Vision renderer effect is used for profile 5
+#. Title of the setting that chooses if the Dolby Vision renderer effect is used
 #: system/settings/settings.xml
 msgctxt "#39218"
-msgid "Dolby Vision profile 5 renderer effect"
+msgid "Dolby Vision renderer effect"
 msgstr ""
 
-#. Help text for setting "Dolby Vision profile 5 renderer effect" of label #39218
+#. Help text for setting "Dolby Vision renderer effect" of label #39218
 #: system/settings/settings.xml
 msgctxt "#39219"
-msgid "Use the system Dolby Vision renderer effect to show the correct colours for Dolby Vision profile 5 video."
+msgid "Use the system Dolby Vision renderer effect to show Dolby Vision profile 5, 7, 8 and 10 video."
 msgstr ""
 
 #empty strings from id 39220 to 39899

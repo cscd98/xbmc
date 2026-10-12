@@ -33,6 +33,15 @@ class CSetting;
 #define FRAME_TYPE_D     4
 
 
+//! Dolby Vision RPU of one frame, in the form the Windows Dolby Vision renderer effect expects
+struct DoviRpu
+{
+  int profile = 0;
+  int compatibilityId = 0;
+  //! HEVC NAL header + unescaped RPU, also for AV1
+  std::vector<uint8_t> data;
+};
+
 // should be entirely filled by all codecs
 struct VideoPicture
 {
@@ -69,8 +78,7 @@ public:
   StreamHdrType hdrType;
   StreamHdrType hdrTypeAlt;
   std::string strDVELType;
-  //! Dolby Vision RPU NAL unit (header included, emulation prevention removed), if exported
-  std::shared_ptr<const std::vector<uint8_t>> doviRpu;
+  std::shared_ptr<const DoviRpu> doviRpu;
 
   bool hasDisplayMetadata = false;
   AVMasteringDisplayMetadata displayMetadata;
