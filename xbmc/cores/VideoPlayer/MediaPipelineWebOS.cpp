@@ -1015,7 +1015,8 @@ std::string CMediaPipelineWebOS::SetupAudio(CDVDStreamInfo& audioHint, CVariant&
     }
     m_audioEncoder = std::make_unique<CAEEncoderFFmpeg>();
 
-    if (WebOSTVPlatformConfig::SupportsEAC3())
+    // The webOS 1.x pipeline has no caps for plain AC3 and crashes on it
+    if (WebOSTVPlatformConfig::SupportsEAC3() || GetLegacyStarfishAPI())
     {
       codecName = "AC3 PLUS";
       setAC3PlusInfo(audioHint, optInfo);
@@ -1025,7 +1026,9 @@ std::string CMediaPipelineWebOS::SetupAudio(CDVDStreamInfo& audioHint, CVariant&
   }
 
   codecName = ms_codecMap.at(audioHint.codec);
-  if (audioHint.codec == AV_CODEC_ID_EAC3)
+  if (audioHint.codec == AV_CODEC_ID_AC3 && GetLegacyStarfishAPI())
+    codecName = "AC3 PLUS";
+  if (codecName == "AC3 PLUS")
   {
     setAC3PlusInfo(audioHint, optInfo);
   }
