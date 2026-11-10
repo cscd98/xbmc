@@ -440,6 +440,7 @@ bool CMediaPipelineWebOS::OpenAudioStream(CDVDStreamInfo& audioHint)
     // API introduced in webOS 6.0, so we need to handle older versions differently
     Unload(true);
 
+    m_mediaAPIs.reset();
     m_mediaAPIs = CreateMediaAPIs();
     m_audioClosed = false;
   }
@@ -488,6 +489,7 @@ bool CMediaPipelineWebOS::OpenVideoStream(CDVDStreamInfo hint)
     // Different codec => unload the current stream
     Unload(true);
 
+    m_mediaAPIs.reset();
     m_mediaAPIs = CreateMediaAPIs();
   }
 
@@ -507,6 +509,7 @@ void CMediaPipelineWebOS::CloseAudioStream(const bool waitForBuffers)
     Unload(waitForBuffers);
     m_audioHint = CDVDStreamInfo();
     m_videoHint = CDVDStreamInfo();
+    m_mediaAPIs.reset();
     m_mediaAPIs = CreateMediaAPIs();
   }
 }
@@ -520,6 +523,7 @@ void CMediaPipelineWebOS::CloseVideoStream(const bool waitForBuffers)
     Unload(waitForBuffers);
     m_audioHint = CDVDStreamInfo();
     m_videoHint = CDVDStreamInfo();
+    m_mediaAPIs.reset();
     m_mediaAPIs = CreateMediaAPIs();
   }
 }
