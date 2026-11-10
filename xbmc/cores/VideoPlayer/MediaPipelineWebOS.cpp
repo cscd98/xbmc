@@ -43,6 +43,7 @@
 #include "platform/linux/WebOSTVPlatformConfig.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -54,7 +55,9 @@
 #include <vector>
 
 #include <appswitching-control-block/AcbAPI.h>
+#include <dlfcn.h>
 #include <glib-object.h>
+#include <webos-helpers/libhelpers.h>
 #include <player-factory/custompipeline.hpp>
 #include <player-factory/customplayer.hpp>
 #include <starfish-media-pipeline/StarfishMediaAPIs.h>
@@ -166,6 +169,88 @@ unsigned int ParseAACSampleRate(const uint8_t* data, const size_t size)
 
   return sampleRate;
 }
+
+// The libplayerAPIs of webOS 1.x lacks StarfishMediaAPIs(const char*) and its Feed() returns a
+// pre-C++11 ABI std::string, so these entry points are resolved at runtime.
+struct LegacyStarfishAPI
+{
+  void (*construct)(StarfishMediaAPIs* self);
+  // the std::string result is returned through a hidden pointer
+  void (*feed)(void* result, StarfishMediaAPIs* self, const char* payload);
+  void (*destroyString)(void* str);
+};
+
+const LegacyStarfishAPI* GetLegacyStarfishAPI()
+{
+  static const LegacyStarfishAPI* legacyAPI = []() -> const LegacyStarfishAPI*
+  {
+    if (dlsym(RTLD_DEFAULT, "_ZN17StarfishMediaAPIsC1EPKc"))
+      return nullptr;
+
+    static LegacyStarfishAPI api{
+        reinterpret_cast<decltype(api.construct)>(
+            dlsym(RTLD_DEFAULT, "_ZN17StarfishMediaAPIsC1Ev")),
+        reinterpret_cast<decltype(api.feed)>(dlsym(RTLD_DEFAULT, "_ZN17StarfishMediaAPIs4FeedEPKc")),
+        reinterpret_cast<decltype(api.destroyString)>(dlsym(RTLD_DEFAULT, "_ZNSsD1Ev"))};
+    if (!api.construct || !api.feed || !api.destroyString)
+    {
+      CLog::Log(LOGERROR, "MediaPipelineWebOS: legacy StarfishMediaAPIs symbols not found");
+      return nullptr;
+    }
+    return &api;
+  }();
+  return legacyAPI;
+}
+
+std::unique_ptr<StarfishMediaAPIs> CreateMediaAPIs()
+{
+  if (const LegacyStarfishAPI* legacyAPI = GetLegacyStarfishAPI())
+  {
+    auto* mediaAPIs = static_cast<StarfishMediaAPIs*>(::operator new(sizeof(StarfishMediaAPIs)));
+    legacyAPI->construct(mediaAPIs);
+    return std::unique_ptr<StarfishMediaAPIs>(mediaAPIs);
+  }
+  return std::make_unique<StarfishMediaAPIs>();
+}
+
+std::string FeedMediaAPIs(StarfishMediaAPIs& mediaAPIs, const char* payload)
+{
+  if (const LegacyStarfishAPI* legacyAPI = GetLegacyStarfishAPI())
+  {
+    // a pre-C++11 ABI std::string only holds a pointer to its characters
+    const char* result = nullptr;
+    legacyAPI->feed(&result, &mediaAPIs, payload);
+    std::string str = result ? result : "";
+    legacyAPI->destroyString(&result);
+    return str;
+  }
+  return mediaAPIs.Feed(payload);
+}
+
+// The webOS 1.x Load() callback carries no user data
+std::atomic<void*> ms_legacyCallbackData{nullptr};
+
+// Without ACB on webOS 1.x the app has to connect the pipeline to the main video and audio sinks
+void ConnectLegacyVideoSink(const char* mediaId)
+{
+  CVariant request;
+  request["context"] = mediaId ? mediaId : "";
+  request["sinkType"] = "MAIN";
+  std::string payload;
+  CJSONVariantWriter::Write(request, payload, true);
+
+  HContext requestContext;
+  requestContext.pub = true;
+  requestContext.multiple = false;
+  requestContext.callback = [](LSHandle* sh, LSMessage* msg, void* ctx)
+  {
+    CLog::Log(LOGDEBUG, "MediaPipelineWebOS: video sink connect: {}", HLunaServiceMessage(msg));
+    return false;
+  };
+  if (HLunaServiceCall("luna://com.webos.service.videosinkmanager/connect", payload.c_str(),
+                       &requestContext))
+    CLog::Log(LOGERROR, "MediaPipelineWebOS: video sink connect request failed");
+}
 } // namespace
 
 CMediaPipelineWebOS::CMediaPipelineWebOS(CProcessInfo& processInfo,
@@ -175,7 +260,7 @@ CMediaPipelineWebOS::CMediaPipelineWebOS(CProcessInfo& processInfo,
                                          CDVDOverlayContainer& overlay,
                                          const bool hasAudio)
   : CThread("MediaPipelineWebOS"),
-    m_mediaAPIs(std::make_unique<StarfishMediaAPIs>()),
+    m_mediaAPIs(CreateMediaAPIs()),
     m_messageQueueAudio("audio"),
     m_messageQueueVideo("video"),
     m_messageQueueParent(parent),
@@ -355,7 +440,7 @@ bool CMediaPipelineWebOS::OpenAudioStream(CDVDStreamInfo& audioHint)
     // API introduced in webOS 6.0, so we need to handle older versions differently
     Unload(true);
 
-    m_mediaAPIs = std::make_unique<StarfishMediaAPIs>();
+    m_mediaAPIs = CreateMediaAPIs();
     m_audioClosed = false;
   }
 
@@ -403,7 +488,7 @@ bool CMediaPipelineWebOS::OpenVideoStream(CDVDStreamInfo hint)
     // Different codec => unload the current stream
     Unload(true);
 
-    m_mediaAPIs = std::make_unique<StarfishMediaAPIs>();
+    m_mediaAPIs = CreateMediaAPIs();
   }
 
   m_videoHint = hint;
@@ -422,7 +507,7 @@ void CMediaPipelineWebOS::CloseAudioStream(const bool waitForBuffers)
     Unload(waitForBuffers);
     m_audioHint = CDVDStreamInfo();
     m_videoHint = CDVDStreamInfo();
-    m_mediaAPIs = std::make_unique<StarfishMediaAPIs>();
+    m_mediaAPIs = CreateMediaAPIs();
   }
 }
 
@@ -435,7 +520,7 @@ void CMediaPipelineWebOS::CloseVideoStream(const bool waitForBuffers)
     Unload(waitForBuffers);
     m_audioHint = CDVDStreamInfo();
     m_videoHint = CDVDStreamInfo();
-    m_mediaAPIs = std::make_unique<StarfishMediaAPIs>();
+    m_mediaAPIs = CreateMediaAPIs();
   }
 }
 
@@ -656,7 +741,7 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   {
     p["option"]["windowId"] = winSystem->GetExportedWindowName();
   }
-  else
+  else if (!GetLegacyStarfishAPI())
   {
     auto buffer = static_cast<CStarfishVideoBuffer*>(m_picture.videoBuffer);
     if (!buffer->GetAcbHandle())
@@ -740,7 +825,7 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
     p["option"]["adaptiveStreaming"]["maxHeight"] = maxHeight;
     p["option"]["adaptiveStreaming"]["maxFrameRate"] = maxFramerate;
   }
-  else
+  else if (!GetLegacyStarfishAPI())
     CLog::LogF(LOGERROR, "Failed to get max resolution");
 
   CVariant payloadArgs;
@@ -755,7 +840,17 @@ bool CMediaPipelineWebOS::Load(CDVDStreamInfo videoHint, CDVDStreamInfo audioHin
   if (!m_mediaAPIs->notifyForeground())
     CLog::LogF(LOGERROR, "notifyForeground failed");
   CLog::LogFC(LOGDEBUG, LOGVIDEO, "Sending Load payload {}", payload);
-  if (!m_mediaAPIs->Load(payload.c_str(), &CMediaPipelineWebOS::PlayerCallback, this))
+  bool loaded;
+  if (GetLegacyStarfishAPI())
+  {
+    ms_legacyCallbackData = this;
+    loaded = m_mediaAPIs->Load(payload.c_str(),
+                               [](int32_t type, int64_t numValue, const char* strValue)
+                               { PlayerCallback(type, numValue, strValue, ms_legacyCallbackData); });
+  }
+  else
+    loaded = m_mediaAPIs->Load(payload.c_str(), &CMediaPipelineWebOS::PlayerCallback, this);
+  if (!loaded)
   {
     CLog::LogF(LOGERROR, "Load failed");
     RequestAudioDevice(false);
@@ -1047,7 +1142,7 @@ void CMediaPipelineWebOS::SetupBitstreamConverter(CDVDStreamInfo& hint)
 
 void CMediaPipelineWebOS::SetHDR(const CDVDStreamInfo& hint) const
 {
-  if (hint.hdrType == StreamHdrType::HDR_TYPE_NONE)
+  if (hint.hdrType == StreamHdrType::HDR_TYPE_NONE || GetLegacyStarfishAPI())
     return;
 
   CVariant hdrData;
@@ -1146,7 +1241,7 @@ bool CMediaPipelineWebOS::FeedAudioData(const std::shared_ptr<CDVDMsg>& msg)
   CJSONVariantWriter::Write(payload, json, true);
   CLog::LogFC(LOGDEBUG, LOGVIDEO, "{}", json);
 
-  const std::string result = m_mediaAPIs->Feed(json.c_str());
+  const std::string result = FeedMediaAPIs(*m_mediaAPIs, json.c_str());
 
   if (result.find("Ok") != std::string::npos)
   {
@@ -1210,21 +1305,29 @@ bool CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
     std::string payload;
     CJSONVariantWriter::Write(time, payload, true);
 
-    auto player = static_cast<mediapipeline::CustomPlayer*>(m_mediaAPIs->player.get());
-    auto pipeline = static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
-    if (!m_mediaAPIs->setTimeToDecode(payload.c_str()))
+    if (GetLegacyStarfishAPI())
     {
-      CLog::LogF(LOGERROR, "setTimeToDecode failed");
-      if (m_webOSVersion < 11)
-      {
-        MEDIA_CUSTOM_CONTENT_INFO_T contentInfo;
-        pipeline->loadSpi_getInfo(&contentInfo);
-        contentInfo.ptsToDecode = pts.count();
-        pipeline->setContentInfo(MEDIA_CUSTOM_SRC_TYPE_ES, &contentInfo);
-      }
+      if (!m_mediaAPIs->setTimeToDecode(payload.c_str()))
+        CLog::LogF(LOGERROR, "setTimeToDecode failed");
     }
+    else
+    {
+      auto player = static_cast<mediapipeline::CustomPlayer*>(m_mediaAPIs->player.get());
+      auto pipeline = static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
+      if (!m_mediaAPIs->setTimeToDecode(payload.c_str()))
+      {
+        CLog::LogF(LOGERROR, "setTimeToDecode failed");
+        if (m_webOSVersion < 11)
+        {
+          MEDIA_CUSTOM_CONTENT_INFO_T contentInfo;
+          pipeline->loadSpi_getInfo(&contentInfo);
+          contentInfo.ptsToDecode = pts.count();
+          pipeline->setContentInfo(MEDIA_CUSTOM_SRC_TYPE_ES, &contentInfo);
+        }
+      }
 
-    pipeline->sendSegmentEvent();
+      pipeline->sendSegmentEvent();
+    }
 
     m_pts = pts;
     m_fedVideoPts = NO_PTS;
@@ -1260,7 +1363,7 @@ bool CMediaPipelineWebOS::FeedVideoData(const std::shared_ptr<CDVDMsg>& msg)
     CJSONVariantWriter::Write(payload, json, true);
     CLog::LogFC(LOGDEBUG, LOGVIDEO, "{}", json);
 
-    const std::string result = m_mediaAPIs->Feed(json.c_str());
+    const std::string result = FeedMediaAPIs(*m_mediaAPIs, json.c_str());
 
     if (result.find("Ok") != std::string::npos)
     {
@@ -1648,6 +1751,9 @@ bool CMediaPipelineWebOS::GetMaxVideoResolution(const std::string& codec,
                                                 int& height,
                                                 int& framerate) const
 {
+  if (GetLegacyStarfishAPI())
+    return false;
+
   // webOS 11+ changed the signature from std::string to const std::string&
   // So we just need to disambiguate for the compiler.
   if (m_webOSVersion >= 11)
@@ -1670,6 +1776,8 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
   const auto buffer = static_cast<CStarfishVideoBuffer*>(m_picture.videoBuffer);
 
   // Adjust event type for older webOS versions
+  if (GetLegacyStarfishAPI() && type >= PF_EVENT_TYPE_STR_STATE_UPDATE__PRELOADCOMPLETED - 1)
+    type += 1;
   if (m_webOSVersion < 5 && type > PF_EVENT_TYPE_STR_STATE_UPDATE__ENDOFSTREAM)
     type += 2;
 
@@ -1700,11 +1808,16 @@ void CMediaPipelineWebOS::PlayerCallback(int32_t type, const int64_t numValue, c
       break;
     case PF_EVENT_TYPE_STR_STATE_UPDATE__LOADCOMPLETED:
     {
-      const auto player = static_cast<mediapipeline::CustomPlayer*>(m_mediaAPIs->player.get());
-      const auto pipeline =
-          static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
-      m_pipeline = pipeline->GetGStreamerElements(
-          {0, MIN_SRC_BUFFER_LEVEL_VIDEO, MAX_SRC_BUFFER_LEVEL_VIDEO, MAX_BUFFER_LEVEL});
+      if (GetLegacyStarfishAPI())
+        ConnectLegacyVideoSink(m_mediaAPIs->getMediaID());
+      else
+      {
+        const auto player = static_cast<mediapipeline::CustomPlayer*>(m_mediaAPIs->player.get());
+        const auto pipeline =
+            static_cast<mediapipeline::CustomPipeline*>(player->getPipeline().get());
+        m_pipeline = pipeline->GetGStreamerElements(
+            {0, MIN_SRC_BUFFER_LEVEL_VIDEO, MAX_SRC_BUFFER_LEVEL_VIDEO, MAX_BUFFER_LEVEL});
+      }
 
       if (acb)
       {
