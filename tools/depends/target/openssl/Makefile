@@ -10,6 +10,9 @@ ifeq ($(OS), linux)
     CONFIGURE+= linux-armv4
     # Need to add "no-async" to avoid "setcontext is not implemented and will always fail" warning
     TARGETOPT+= no-async
+    # Apps cannot open /dev/random, so on kernels without getrandom() (< 3.17) the seeding
+    # never reads /dev/urandom and every TLS connection fails
+    TARGETOPT+= -DOPENSSL_RAND_SEED_DEVRANDOM_SHM_ID=-1
   else
     ifeq ($(CPU),aarch64)
       CONFIGURE+= linux-aarch64
