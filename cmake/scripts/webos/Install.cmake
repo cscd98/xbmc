@@ -31,6 +31,11 @@ set(APP_INSTALL_DIRS ${CMAKE_BINARY_DIR}/addons
 set(APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/lib/libatomic.so.1
                         ${TOOLCHAIN}/${HOST}/sysroot/lib/libcrypt.so.1
                         ${CMAKE_BINARY_DIR}/libAcbAPI.so.1)
+if(WEBOS_LEGACY_COMPAT)
+  # The system libwayland-client 1.0 lacks APIs used by waylandpp
+  list(APPEND APP_TOOLCHAIN_FILES ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libwayland-client.so.0
+                                  ${TOOLCHAIN}/${HOST}/sysroot/usr/lib/libffi.so.8)
+endif()
 set(BIN_ADDONS_DIR ${DEPENDS_PATH}/addons)
 
 file(WRITE ${CMAKE_BINARY_DIR}/install.cmake "

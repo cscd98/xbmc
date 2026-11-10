@@ -117,6 +117,15 @@ if(KODI_DEPENDSBUILD)
   set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 endif()
 
+# Bundled libs in lib/ must win over /usr/lib, which leads LD_LIBRARY_PATH on webOS.
+# Only DT_RPATH (not DT_RUNPATH) is searched before LD_LIBRARY_PATH.
+option(WEBOS_LEGACY_COMPAT "Bundle newer system libs for webOS < 5 devices" OFF)
+if("webos" IN_LIST CORE_PLATFORM_NAME_LC AND WEBOS_LEGACY_COMPAT)
+  set(CMAKE_INSTALL_RPATH "\$ORIGIN/lib")
+  set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+  string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,--disable-new-dtags")
+endif()
+
 include(CheckIncludeFiles)
 check_include_files("linux/udmabuf.h" HAVE_LINUX_UDMABUF)
 if(HAVE_LINUX_UDMABUF)
